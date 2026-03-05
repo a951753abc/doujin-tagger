@@ -86,6 +86,14 @@
                 <button id="sort-order" class="btn-sort-order" onclick="toggleSortOrder()" title="切換排序方向">↓</button>
             </div>
             <button onclick="clearFilters()">清除篩選</button>
+            <div class="view-toggle">
+                <button id="btn-list" class="view-btn active" onclick="setViewMode('list')" title="列表模式">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="0" y="1" width="16" height="3" rx="1"/><rect x="0" y="6.5" width="16" height="3" rx="1"/><rect x="0" y="12" width="16" height="3" rx="1"/></svg>
+                </button>
+                <button id="btn-grid" class="view-btn" onclick="setViewMode('grid')" title="格子模式">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="0" y="0" width="7" height="7" rx="1"/><rect x="9" y="0" width="7" height="7" rx="1"/><rect x="0" y="9" width="7" height="7" rx="1"/><rect x="9" y="9" width="7" height="7" rx="1"/></svg>
+                </button>
+            </div>
         </div>
     </section>
 
@@ -145,6 +153,7 @@ let currentPage = 1;
 let debounceTimer = null;
 let allTags = [];
 let sortOrder = 'desc';
+let viewMode = localStorage.getItem('viewMode') || 'list';
 
 // ── Toast 通知 ──
 function showToast(message, type = 'success', duration = 3000) {
@@ -160,6 +169,7 @@ function showToast(message, type = 'success', duration = 3000) {
 // ── 初始化 ──
 async function init() {
     await Promise.all([loadFilters(), loadTags()]);
+    initViewMode();
     doSearch();
 
     document.getElementById('q').addEventListener('input', debounceSearch);
@@ -282,6 +292,24 @@ function renderTagFilters() {
 
 function getSelectedTags() {
     return [...document.querySelectorAll('#tag-filters input:checked')].map(cb => cb.value);
+}
+
+// ── 檢視模式 ──
+function setViewMode(mode) {
+    viewMode = mode;
+    localStorage.setItem('viewMode', mode);
+    document.getElementById('btn-list').classList.toggle('active', mode === 'list');
+    document.getElementById('btn-grid').classList.toggle('active', mode === 'grid');
+    const container = document.getElementById('results');
+    container.classList.toggle('results-grid', mode === 'grid');
+    // 若已有結果，重新渲染
+    if (container._lastItems) renderResults(container._lastItems);
+}
+
+function initViewMode() {
+    document.getElementById('btn-list').classList.toggle('active', viewMode === 'list');
+    document.getElementById('btn-grid').classList.toggle('active', viewMode === 'grid');
+    document.getElementById('results').classList.toggle('results-grid', viewMode === 'grid');
 }
 
 // ── Badge 點擊篩選（event delegation）──
@@ -419,39 +447,65 @@ function showSkeleton() {
 // ── 渲染結果 ──
 function renderResults(items) {
     const container = document.getElementById('results');
+    container._lastItems = items;
+    container.classList.toggle('results-grid', viewMode === 'grid');
+
     if (items.length === 0) {
         container.innerHTML = '<div class="no-results">沒有找到符合條件的結果</div>';
         return;
     }
-    container.innerHTML = items.map(item => `
-        <div class="card" data-id="${item.id}">
-            <div class="card-title">${esc(item.title || item.filename)}</div>
-            <div class="card-meta">
-                ${item.event ? `<span class="meta-badge event clickable" data-filter-field="event" data-filter-value="${esc(item.event)}" title="篩選場次: ${esc(item.event)}">${esc(item.event)}</span>` : ''}
-                ${item.circle ? `<span class="meta-badge circle clickable" data-filter-field="circle" data-filter-value="${esc(item.circle)}" title="篩選社團: ${esc(item.circle)}">${esc(item.circle)}</span>` : ''}
-                ${item.author ? `<span class="meta-badge author clickable" data-filter-field="author" data-filter-value="${esc(item.author)}" title="篩選作者: ${esc(item.author)}">${esc(item.author)}</span>` : ''}
-                ${item.parody ? `<span class="meta-badge parody clickable" data-filter-field="parody" data-filter-value="${esc(item.parody)}" title="篩選原作: ${esc(item.parody)}">${esc(item.parody)}</span>` : ''}
-                ${item.is_dl ? '<span class="meta-badge dl">DL版</span>' : ''}
-                ${item.category && item.category !== '同人誌' ? `<span class="meta-badge cat-${item.category === 'CG' ? 'cg' : 'commercial'}">${esc(item.category)}</span>` : ''}
-                ${item.source === 'downloads' ? '<span class="meta-badge source-dl">下載區</span>' : ''}
+
+    const badgesHtml = item => `
+        ${item.event ? `<span class="meta-badge event clickable" data-filter-field="event" data-filter-value="${esc(item.event)}" title="篩選場次: ${esc(item.event)}">${esc(item.event)}</span>` : ''}
+        ${item.circle ? `<span class="meta-badge circle clickable" data-filter-field="circle" data-filter-value="${esc(item.circle)}" title="篩選社團: ${esc(item.circle)}">${esc(item.circle)}</span>` : ''}
+        ${item.author ? `<span class="meta-badge author clickable" data-filter-field="author" data-filter-value="${esc(item.author)}" title="篩選作者: ${esc(item.author)}">${esc(item.author)}</span>` : ''}
+        ${item.parody ? `<span class="meta-badge parody clickable" data-filter-field="parody" data-filter-value="${esc(item.parody)}" title="篩選原作: ${esc(item.parody)}">${esc(item.parody)}</span>` : ''}
+        ${item.is_dl ? '<span class="meta-badge dl">DL版</span>' : ''}
+        ${item.category && item.category !== '同人誌' ? `<span class="meta-badge cat-${item.category === 'CG' ? 'cg' : 'commercial'}">${esc(item.category)}</span>` : ''}
+        ${item.source === 'downloads' ? '<span class="meta-badge source-dl">下載區</span>' : ''}`;
+
+    const tagsHtml = item => `
+        ${item.tags.map(t => `<span class="tag-chip">${esc(t.name)} <button onclick="removeTag(${item.id},${t.id})" title="移除 tag">&times;</button></span>`).join('')}
+        <button class="btn-add-tag" onclick="showAddTag(${item.id})">+ tag</button>
+        <span class="add-tag-input" id="add-tag-${item.id}" style="display:none">
+            <input type="text" list="dl-all-tags" placeholder="tag 名稱"
+                   onkeydown="if(event.key==='Enter')confirmAddTag(${item.id})">
+            <button onclick="confirmAddTag(${item.id})">OK</button>
+        </span>`;
+
+    const actionsHtml = item => `
+        <button onclick="openFile(${item.id})" class="btn-open">開啟</button>
+        <button onclick="showEditModal(${item.id})" class="btn-secondary">編輯</button>
+        ${item.filepath && item.filepath.toLowerCase().endsWith('.zip') ? `<button onclick="deleteFile(${item.id}, '${esc(item.filename).replace(/'/g, "\\'")}')" class="btn-delete">刪除</button>` : ''}`;
+
+    const thumbHtml = item =>
+        `<img src="/api/thumb/${item.id}" class="thumb-img" loading="lazy" alt="" onerror="this.classList.add('thumb-error')">`;
+
+    if (viewMode === 'grid') {
+        container.innerHTML = items.map(item => `
+            <div class="card grid-card" data-id="${item.id}">
+                <div class="grid-thumb">${thumbHtml(item)}</div>
+                <div class="grid-info">
+                    <div class="card-title">${esc(item.title || item.filename)}</div>
+                    <div class="card-meta">${badgesHtml(item)}</div>
+                    <div class="card-actions">${actionsHtml(item)}</div>
+                </div>
             </div>
-            <div class="card-tags" id="tags-${item.id}">
-                ${item.tags.map(t => `<span class="tag-chip">${esc(t.name)} <button onclick="removeTag(${item.id},${t.id})" title="移除 tag">&times;</button></span>`).join('')}
-                <button class="btn-add-tag" onclick="showAddTag(${item.id})">+ tag</button>
-                <span class="add-tag-input" id="add-tag-${item.id}" style="display:none">
-                    <input type="text" list="dl-all-tags" placeholder="tag 名稱"
-                           onkeydown="if(event.key==='Enter')confirmAddTag(${item.id})">
-                    <button onclick="confirmAddTag(${item.id})">OK</button>
-                </span>
+        `).join('');
+    } else {
+        container.innerHTML = items.map(item => `
+            <div class="card list-card" data-id="${item.id}">
+                <div class="list-thumb">${thumbHtml(item)}</div>
+                <div class="list-info">
+                    <div class="card-title">${esc(item.title || item.filename)}</div>
+                    <div class="card-meta">${badgesHtml(item)}</div>
+                    <div class="card-tags" id="tags-${item.id}">${tagsHtml(item)}</div>
+                    <div class="card-actions">${actionsHtml(item)}</div>
+                    <div class="card-filename">${esc(item.filename)}</div>
+                </div>
             </div>
-            <div class="card-actions">
-                <button onclick="openFile(${item.id})" class="btn-open">開啟</button>
-                <button onclick="showEditModal(${item.id})" class="btn-secondary">編輯</button>
-                ${item.filepath && item.filepath.toLowerCase().endsWith('.zip') ? `<button onclick="deleteFile(${item.id}, '${esc(item.filename).replace(/'/g, "\\'")}')" class="btn-delete">刪除</button>` : ''}
-            </div>
-            <div class="card-filename">${esc(item.filename)}</div>
-        </div>
-    `).join('');
+        `).join('');
+    }
 }
 
 function esc(s) {

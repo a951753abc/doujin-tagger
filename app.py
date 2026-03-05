@@ -3,15 +3,17 @@
 import os
 import subprocess
 from pathlib import Path
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, send_file
 
 from models import (
     get_db, init_db, search_doujinshi, get_doujinshi,
     update_doujinshi, add_tag, remove_tag, get_all_tags, get_filter_options
 )
 from normalize import find_duplicates_for_field, merge_field_values
+from thumbs import ThumbWorker, get_thumbnail_path
 
 app = Flask(__name__)
+thumb_worker = ThumbWorker(max_workers=2)
 
 ALLOWED_ROOTS = ["I:/同人誌", "H:/"]
 
@@ -204,6 +206,22 @@ def api_merge():
         return jsonify({"error": "missing field, canonical, or old_values"}), 400
     count = merge_field_values(g.db, field, canonical, old_values)
     return jsonify({"ok": True, "updated": count})
+
+
+@app.route('/api/thumb/<int:did>')
+def api_thumb(did):
+    """回傳縮圖。若尚未生成，提交背景任務並回傳 placeholder。"""
+    from flask import g
+    thumb = get_thumbnail_path(did)
+    if thumb:
+        return send_file(thumb, mimetype='image/webp',
+                         max_age=86400)
+
+    item = get_doujinshi(g.db, did)
+    if item:
+        thumb_worker.submit(item['filepath'], did)
+    # 回傳 1x1 透明 webp placeholder
+    return '', 202
 
 
 @app.route('/api/rescan', methods=['POST'])
