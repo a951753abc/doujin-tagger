@@ -181,7 +181,45 @@ async function init() {
 
     // 全域鍵盤快捷鍵
     document.addEventListener('keydown', e => {
-        if (e.key === 'Escape') closeEditModal();
+        const tag = document.activeElement.tagName;
+        const inInput = (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT');
+
+        if (e.key === 'Escape') {
+            if (document.getElementById('edit-modal').style.display !== 'none') {
+                closeEditModal();
+            } else if (inInput) {
+                document.activeElement.blur();
+            }
+            return;
+        }
+
+        if (inInput) return;
+
+        if (e.key === '/') {
+            e.preventDefault();
+            document.getElementById('q').focus();
+            return;
+        }
+
+        // j/k 導覽卡片
+        const cards = [...document.querySelectorAll('#results .card')];
+        if (cards.length === 0) return;
+        const idx = cards.indexOf(document.activeElement);
+        if (e.key === 'j') {
+            e.preventDefault();
+            cards[Math.min(idx + 1, cards.length - 1)].focus();
+        } else if (e.key === 'k') {
+            e.preventDefault();
+            cards[Math.max(idx - 1, 0)].focus();
+        }
+    });
+
+    // 卡片 Enter 開啟
+    document.getElementById('results').addEventListener('keydown', e => {
+        if (e.key === 'Enter' && e.target.classList.contains('card')) {
+            const id = e.target.dataset.id;
+            if (id) openFile(parseInt(id));
+        }
     });
 }
 
@@ -483,7 +521,7 @@ function renderResults(items) {
 
     if (viewMode === 'grid') {
         container.innerHTML = items.map(item => `
-            <div class="card grid-card" data-id="${item.id}">
+            <div class="card grid-card" data-id="${item.id}" tabindex="0">
                 <div class="grid-thumb">${thumbHtml(item)}</div>
                 <div class="grid-info">
                     <div class="card-title">${esc(item.title || item.filename)}</div>
@@ -494,7 +532,7 @@ function renderResults(items) {
         `).join('');
     } else {
         container.innerHTML = items.map(item => `
-            <div class="card list-card" data-id="${item.id}">
+            <div class="card list-card" data-id="${item.id}" tabindex="0">
                 <div class="list-thumb">${thumbHtml(item)}</div>
                 <div class="list-info">
                     <div class="card-title">${esc(item.title || item.filename)}</div>

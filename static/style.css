@@ -564,6 +564,11 @@ header button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
     box-shadow: var(--shadow-sm);
     transform: translateY(-1px);
 }
+.card:focus-visible {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--focus-ring);
+    outline: none;
+}
 
 @keyframes cardIn {
     from {
