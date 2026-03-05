@@ -1184,7 +1184,7 @@ header button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
     top: 100%;
     left: 0;
     right: 0;
-    z-index: 200;
+    z-index: 1000;
     background: rgba(22, 25, 41, 0.95);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);

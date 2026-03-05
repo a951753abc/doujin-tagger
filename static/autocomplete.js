@@ -11,13 +11,20 @@ class AutoComplete {
         this.filtered = [];
         this.selectedIndex = -1;
         this.isOpen = false;
+        // 偵測是否在 overflow 容器內（如 modal）→ 用 fixed 定位掛到 body
+        this.useFixed = !!inputEl.closest('.modal, [style*="overflow"]');
 
         // 建立 dropdown
         this.dropdown = document.createElement('div');
         this.dropdown.className = 'ac-dropdown';
         this.dropdown.style.display = 'none';
-        this.input.parentElement.style.position = 'relative';
-        this.input.parentElement.appendChild(this.dropdown);
+        if (this.useFixed) {
+            this.dropdown.style.position = 'fixed';
+            document.body.appendChild(this.dropdown);
+        } else {
+            this.input.parentElement.style.position = 'relative';
+            this.input.parentElement.appendChild(this.dropdown);
+        }
 
         this._onInput = this._onInput.bind(this);
         this._onKeydown = this._onKeydown.bind(this);
@@ -87,6 +94,12 @@ class AutoComplete {
                 <span class="ac-count">${item.count}</span>
             </div>`
         ).join('');
+        if (this.useFixed) {
+            const rect = this.input.getBoundingClientRect();
+            this.dropdown.style.top = rect.bottom + 4 + 'px';
+            this.dropdown.style.left = rect.left + 'px';
+            this.dropdown.style.width = rect.width + 'px';
+        }
         this.dropdown.style.display = 'block';
         this.isOpen = true;
     }

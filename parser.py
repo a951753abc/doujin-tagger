@@ -66,7 +66,194 @@ COMMERCIAL_PATTERN = re.compile(
 # 原作名正規化映射（變體 → 正式名稱）
 PARODY_ALIASES = {
     '東方': '東方Project',
+    'Original': 'オリジナル',
+    'original': 'オリジナル',
+    'Various': 'よろず',
+    # English/Romaji → Japanese
+    'Bakemonogatari': '化物語',
+    'Bakemonogari': '化物語',
+    'Rozen Maiden': 'ローゼンメイデン',
+    'Saki': '咲 -Saki-',
+    'Highschool DxD': 'ハイスクールD×D',
+    'Dead Or Alive': 'デッド・オア・アライブ',
+    'Toaru Majutsu no Index': 'とある魔術の禁書目録',
+    'Smile Precure': 'スマイルプリキュア!',
+    'Suite PreCure': 'スイートプリキュア',
+    'Dokidoki! Precure': 'ドキドキ!プリキュア',
+    'Puella Magi Madoka Magica': '魔法少女まどか☆マギカ',
+    'Mahou Shoujo Lyrical Nanoha': '魔法少女リリカルなのは',
+    'Alice in Wonderland': '不思議の国のアリス',
+    'Aquarion Evol': 'アクエリオンEVOL',
+    'Tamako Market': 'たまこまーけっと',
+    'Ragnarok Online': 'ラグナロクオンライン',
+    'Infinite Stratos': 'インフィニット・ストラトス',
+    'Blue Archive': 'ブルーアーカイブ',
+    'Kemono Friends': 'けものフレンズ',
+    'Katanagatari': '刀語',
+    'Shadowverse': 'シャドウバース',
+    "Queen's Blade": 'クイーンズブレイド',
+    'Etrian Odyssey': '世界樹の迷宮',
+    'DATE A LIVE': 'デート・ア・ライブ',
+    'Dynasty Warriors': '真・三國無双',
+    'Love Plus': 'ラブプラス',
+    # Japanese variant normalization
+    'ToLOVEる': 'To LOVEる -とらぶる-',
+    'とらぶる': 'To LOVEる -とらぶる-',
+    'To LOVE-Ru Darkness': 'To LOVEる ダークネス',
+    'IS': 'インフィニット・ストラトス',
+    'IS＜インフィニット・ストラトス＞': 'インフィニット・ストラトス',
+    'セーラームーン': '美少女戦士セーラームーン',
+    'ポケモン': 'ポケットモンスター',
+    'モバマス': 'アイドルマスター シンデレラガールズ',
+    'ネギま': '魔法先生ネギま!',
+    'クラナド': 'CLANNAD',
+    'エヴァンゲリオン': '新世紀エヴァンゲリオン',
+    'ドラクエ': 'ドラゴンクエスト',
+    'ボーカロイド': 'VOCALOID',
+    # Fate series normalization
+    'Fate Grand Order': 'Fate/Grand Order',
+    'Fate／Grand Order': 'Fate/Grand Order',
+    'Fate／Zero': 'Fate/Zero',
+    'Fate／セイバー': 'Fate/stay night',
+    # SAO variants
+    'Sword Art Online': 'ソードアート・オンライン',
+    'SAO': 'ソードアート・オンライン',
+    'ソードアート · オンライン': 'ソードアート・オンライン',
+    'ソードアート オンライン': 'ソードアート・オンライン',
+    # More English/Romaji → Japanese
+    'Toaru Kagaku no Railgun': 'とある科学の超電磁砲',
+    'Pokemon': 'ポケットモンスター',
+    'Accel World': 'アクセル・ワールド',
+    'アクセルワールド': 'アクセル・ワールド',
+    # Boundary Horizon variants
+    '境界線上のホライズン': '境界線上のホライゾン',
+    # IS variants
+    'IS＜インフィニットストラトス＞': 'インフィニット・ストラトス',
+    # Precure variants (fullwidth ！)
+    'スマイルプリキュア！': 'スマイルプリキュア!',
+    'ハートキャッチプリキュア！': 'ハートキャッチプリキュア!',
+    'ハートキャッチプリキュア': 'ハートキャッチプリキュア!',
+    # Idolmaster
+    'アイマス': 'アイドルマスター',
+    # Typos / encoding issues
+    '月姬': '月姫',
+    '夜ノヤッーマン': '夜ノヤッターマン',
+    '俺の がこんなに可愛いわけがない': '俺の妹がこんなに可愛いわけがない',
+    '天色＊アイルノーツ': '天色アイルノーツ',
+    'まりあ ほりっく': 'まりあ†ほりっく',
+    'さよなら 絶望先生': 'さよなら絶望先生',
+    # Abbreviations / English → Japanese
+    'AW': 'アクセル・ワールド',
+    'ときメモ': 'ときめきメモリアル',
+    'ときメモ4': 'ときめきメモリアル4',
+    'マクロスFRONTIER': 'マクロスF',
+    'ゴッドイーター': 'GOD EATER',
+    'サムライスピリッツ': '侍魂',
+    'サムライスピリッツ侍魂': '侍魂',
+    'Zettai+Karen+Children': '絶対可憐チルドレン',
+    'Kiratto Pri Chan': 'キラッとプリ☆チャン',
+    'Super Mario Bros.': 'スーパーマリオブラザーズ',
+    # Series name normalization
+    'アイドルマスターシリーズ': 'アイドルマスター',
+    'プリキュアシリーズ': 'プリキュア',
+    'ラブライブ! School idol project': 'ラブライブ!',
+    'ラブライブ! シリーズ': 'ラブライブ!',
+    '聖剣伝説シリーズ': '聖剣伝説',
+    'テイルズオブ シリーズ': 'テイルズシリーズ',
+    # Strip appended character names
+    'けんぷファー ナツル 雫': 'けんぷファー',
+    'にゃんこい! 加奈子': 'にゃんこい!',
+    'ひだまりスケッチ／ゆの': 'ひだまりスケッチ',
+    'オリジナル , ふたなり': 'オリジナル',
+    'オリジナル,ショタ': 'オリジナル',
+    # Long/short name normalization
+    'TERA': 'TERA The Exiled Realm of Arborea',
+    'ガンダムSEED DESTINY': '機動戦士ガンダムSEED DESTINY',
+    '機動戦士ガンダムAGE': 'ガンダムAGE',
+    'ペルソナ3P': 'ペルソナ3',
+    'ペルソナ3ポータブル': 'ペルソナ3',
+    '神羅万象': '神羅万象チョコ',
+    'ダイの大冒険': 'ドラゴンクエスト ダイの大冒険',
+    'ドラゴンクエスト III そして伝説へ…': 'ドラゴンクエスト3',
+    'ドラゴンクエストIII': 'ドラゴンクエスト3',
+    'New スーパーマリオブラザーズ U デラックス': 'スーパーマリオブラザーズ',
+    'ドリームクラブZERO': 'ドリームクラブ',
+    'クロスウォーズ': 'デジモンクロスウォーズ',
+    '超昂大戦': '超昂大戦エスカレーションヒロインズ',
+    '侍魂 , スカトロ': '侍魂',
 }
+
+
+def _is_valid_parody(s: str) -> bool:
+    """驗證提取的原作名是否合理（排除亂碼、翻譯組名、出版標籤等）。"""
+    if not s or len(s) < 2:
+        return False
+    # 翻譯組名（含漢化/汉化）
+    if re.search(r'漢化|汉化', s):
+        return False
+    # 出版標籤
+    if re.match(r'^(あとみっく文庫|二次元ドリーム文庫|フランス書院)\d*$', s):
+        return False
+    # 多人作者列表（4+ 個空格分隔的詞）
+    if len(s.split()) >= 4 and not re.search(r'[のがをはにでと]', s):
+        return False
+    # 亂碼偵測：含太多罕用字元
+    unusual = 0
+    total = 0
+    for ch in s:
+        if '\u4e00' <= ch <= '\u9fff' or '\u3040' <= ch <= '\u30ff':
+            total += 1
+        elif '\u3400' <= ch <= '\u4dbf' or '\uf900' <= ch <= '\ufaff':
+            unusual += 1
+            total += 1
+        elif ord(ch) > 127 and ch not in '☆★♪♡×・＜＞！？　＠／':
+            # 非常見全形符號
+            code = ord(ch)
+            if not (0xFF01 <= code <= 0xFF5E):  # 全形 ASCII
+                unusual += 1
+                total += 1
+    if total > 0 and unusual / max(total, 1) > 0.3:
+        return False
+    return True
+
+
+def _find_trailing_parens(s: str):
+    """找出字串尾部的平衡圓括號內容。支援巢狀括號如 (A (B))。返回 (start_index, content) 或 None。"""
+    s = s.rstrip()
+    if not s.endswith(')'):
+        return None
+    depth = 0
+    end = len(s)
+    for i in range(end - 1, -1, -1):
+        if s[i] == ')':
+            depth += 1
+        elif s[i] == '(':
+            depth -= 1
+            if depth == 0:
+                content = s[i + 1:end - 1].strip()
+                return (i, content)
+    return None
+
+
+# 已知非原作尾部圓括號內容
+NON_PARODY_TAIL = re.compile(
+    r'\s*\(('
+    r'JPG|BMP|PNG|CG|MP3|WAV|FLAC|Hi-Res'
+    r'|エロ|ロリータ|ふたなり|スカトロ|非エロ|残'
+    r'|Chinese|English|Korean|JAP|中文|韓国語|中国語|别扫'
+    r'|Digital|修正版|別スキャン|DL版|画像化済|Full HQ Scan'
+    r'|イラスト集|CG集|画集|合同誌|再録集|総集編'
+    r'|発行\s*\d{4}[-/]\d{2}[-/]\d{2}'
+    r')\)\s*$',
+    re.IGNORECASE
+)
+
+# 尾部場次圓括號（誤判為原作的場次名）
+EVENT_TAIL = re.compile(
+    r'\s*\('
+    r'(C\d+|COMIC1[☆★]\d+|COMIC\d+|SC\d+|COMITIA\d+|AC\d+)'
+    r'\)\s*$'
+)
 
 
 def parse_filename(filename: str) -> ParsedDoujinshi:
@@ -96,9 +283,9 @@ def parse_filename(filename: str) -> ParsedDoujinshi:
     # 移除前綴垃圾 [xxx@xxx]
     name = PREFIX_JUNK.sub('', name)
 
-    # 移除 (同人誌)/(同人志)/(同人CG集) 標記，但記錄下來
+    # 移除 (同人誌)/(同人志)/(同人CG集)/(同人CG) 標記，但記錄下來
     name = re.sub(r'\(同人[誌志]\)\s*', '', name)
-    name = re.sub(r'\(同人CG[集]\)\s*', '', name)
+    name = re.sub(r'\(同人CG(?:集)?\)\s*', '', name)
 
     # 移除尾部方括號標記 [DL版] [Chinese] 等
     name = SKIP_TAGS.sub('', name)
@@ -175,20 +362,89 @@ def parse_filename(filename: str) -> ParsedDoujinshi:
         name = name[circle_match.end():]
 
     # 3) 剩餘部分：標題 (原作)
-    # 從最後找 (原作)
     name = name.strip()
-    parody_match = re.search(r'\(([^)]+)\)\s*$', name)
-    if parody_match:
-        parody = parody_match.group(1).strip()
-        title = name[:parody_match.start()].strip()
-    else:
-        title = name.strip()
+
+    # 全形括號轉半形（部分檔名使用 （） 而非 ()）
+    name = name.replace('（', '(').replace('）', ')')
+
+    # 移除尾部所有方括號標記（翻譯組、版本標記等）
+    while True:
+        m = re.search(r'\s*\[[^\]]*\]\s*$', name)
+        if m:
+            name = name[:m.start()]
+        else:
+            break
+
+    # 移除尾部裸版本標記（無括號的 デジタル版 / DL版）
+    name = re.sub(r'\s+(?:デジタル版|DL版)\s*$', '', name)
+
+    # 移除已知非原作尾部圓括號
+    while True:
+        m = NON_PARODY_TAIL.search(name)
+        if m:
+            name = name[:m.start()]
+        else:
+            break
+
+    # 移除尾部場次圓括號 (C78) (COMIC1☆5) 等
+    while True:
+        m = EVENT_TAIL.search(name)
+        if m:
+            name = name[:m.start()]
+        else:
+            break
+
+    name = name.strip()
+
+    # 用平衡括號匹配提取原作（支援巢狀括號）
+    # 若候選值無效（翻譯組名等），跳過並嘗試下一個
+    remaining = name
+    while True:
+        paren_result = _find_trailing_parens(remaining)
+        if not paren_result:
+            title = name.strip()
+            break
+        start, parody_text = paren_result
+        # 移除巢狀的 (シリーズ) 後綴
+        candidate = re.sub(r'\s*\(シリーズ\)\s*$', '', parody_text).strip()
+        if _is_valid_parody(candidate):
+            parody = candidate
+            title = name[:name.rfind('(' + parody_text[0] if parody_text else '(')].strip()
+            # 精確計算 title：用原始 name 截斷到匹配位置
+            # 找到 remaining 中 start 對應到 name 中的位置
+            tail_len = len(remaining) - start
+            title = name[:len(name) - tail_len].strip()
+            break
+        else:
+            # 無效候選，截斷後繼續嘗試
+            remaining = remaining[:start].strip()
+            # 再次清理尾部非原作括號和場次
+            while True:
+                m = NON_PARODY_TAIL.search(remaining)
+                if m:
+                    remaining = remaining[:m.start()]
+                else:
+                    break
+            while True:
+                m = EVENT_TAIL.search(remaining)
+                if m:
+                    remaining = remaining[:m.start()]
+                else:
+                    break
+            remaining = remaining.strip()
 
     # 清理多餘空格
     if title:
         title = re.sub(r'\s+', ' ', title).strip()
     if not title:
         title = filename  # fallback: 用原始檔名
+
+    # 驗證原作名合理性
+    if parody and not _is_valid_parody(parody):
+        # 無效的原作名歸入標題
+        if title and parody:
+            title = f"{title} ({parody})"
+        parody = None
 
     # 正規化原作名
     if parody and parody in PARODY_ALIASES:
