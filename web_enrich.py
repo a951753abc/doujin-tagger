@@ -18,6 +18,7 @@ from urllib.parse import quote_plus
 import requests
 from bs4 import BeautifulSoup
 
+import config
 from models import get_db, get_doujinshi, update_doujinshi
 
 # ── 常數 ──
@@ -84,13 +85,9 @@ RJ_PATTERN = re.compile(r'(RJ\d{6,8})', re.IGNORECASE)
 # CG 集判定用關鍵字
 CG_KEYWORDS = re.compile(r'CG集|CG set|イラスト集|画集', re.IGNORECASE)
 
-# 請求間隔（秒）
-REQUEST_DELAY = 1.5
-
-
 def _delay():
     """請求間隔，避免被封鎖。"""
-    time.sleep(REQUEST_DELAY)
+    time.sleep(config.REQUEST_DELAY)
 
 
 # ── Layer 1: DLsite 搜尋 ──

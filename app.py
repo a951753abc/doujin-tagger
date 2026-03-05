@@ -1,24 +1,37 @@
 """同人誌 TAG 搜尋系統 - Flask 應用"""
 
+import io
+import json
 import os
 import subprocess
 from pathlib import Path
-from flask import Flask, render_template, request, jsonify, send_file
+from flask import Flask, render_template, request, jsonify, send_file, make_response
 
+from PIL import Image as _PILImage
+
+import config
 from models import (
     get_db, init_db, search_doujinshi, get_doujinshi,
     update_doujinshi, add_tag, remove_tag, get_all_tags, get_filter_options,
     batch_add_tag, batch_update, get_stats, get_setting, set_setting, get_all_settings
 )
-
-DEFAULT_VIEWER = r"C:\Program Files\Honeyview\Honeyview.exe"
 from normalize import find_duplicates_for_field, merge_field_values
 from thumbs import ThumbWorker, get_thumbnail_path
 
 app = Flask(__name__)
-thumb_worker = ThumbWorker(max_workers=2)
+thumb_worker = ThumbWorker(max_workers=config.THUMB_WORKERS)
 
-ALLOWED_ROOTS = ["I:/同人誌", "H:/"]
+# 1x1 透明 webp placeholder（啟動時生成一次）
+_ph = io.BytesIO()
+_PILImage.new('RGBA', (1, 1), (0, 0, 0, 0)).save(_ph, 'WEBP')
+PLACEHOLDER_WEBP = _ph.getvalue()
+
+def _get_allowed_roots(db=None):
+    """從 DB settings 動態取得允許的根目錄。"""
+    from scan import get_scan_roots
+    conn = db or get_db()
+    roots = get_scan_roots(conn)
+    return [str(r["path"]) for r in roots]
 
 
 @app.before_request
@@ -124,14 +137,15 @@ def open_file(did):
 
     filepath = item['filepath']
     # 安全檢查：路徑必須在允許的根目錄下
+    allowed = _get_allowed_roots(g.db)
     norm_path = os.path.normpath(filepath)
-    if not any(norm_path.startswith(os.path.normpath(r)) for r in ALLOWED_ROOTS):
+    if not any(norm_path.startswith(os.path.normpath(r)) for r in allowed):
         return jsonify({"error": "invalid path"}), 403
 
     if not os.path.exists(filepath):
         return jsonify({"error": "file not found"}), 404
 
-    os.startfile(filepath)
+    config.open_file_cross_platform(filepath)
     return jsonify({"ok": True})
 
 
@@ -150,8 +164,9 @@ def api_delete(did):
         return jsonify({"error": "僅限刪除 ZIP 檔案"}), 403
 
     # 安全檢查：路徑必須在允許的根目錄下
+    allowed = _get_allowed_roots(g.db)
     norm_path = os.path.normpath(filepath)
-    if not any(norm_path.startswith(os.path.normpath(r)) for r in ALLOWED_ROOTS):
+    if not any(norm_path.startswith(os.path.normpath(r)) for r in allowed):
         return jsonify({"error": "invalid path"}), 403
 
     # 刪除實體檔案
@@ -249,8 +264,11 @@ def api_thumb(did):
     item = get_doujinshi(g.db, did)
     if item:
         thumb_worker.submit(item['filepath'], did)
-    # 回傳 1x1 透明 webp placeholder
-    return '', 202
+    # 回傳 1x1 透明 webp placeholder（不快取，讓前端輪詢能取到新縮圖）
+    resp = make_response(PLACEHOLDER_WEBP)
+    resp.headers['Content-Type'] = 'image/webp'
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp, 202
 
 
 @app.route('/read/<int:did>')
@@ -262,14 +280,15 @@ def read_file(did):
         return jsonify({"error": "not found"}), 404
 
     filepath = item['filepath']
+    allowed = _get_allowed_roots(g.db)
     norm_path = os.path.normpath(filepath)
-    if not any(norm_path.startswith(os.path.normpath(r)) for r in ALLOWED_ROOTS):
+    if not any(norm_path.startswith(os.path.normpath(r)) for r in allowed):
         return jsonify({"error": "invalid path"}), 403
 
     if not os.path.exists(filepath):
         return jsonify({"error": "file not found"}), 404
 
-    viewer = get_setting(g.db, 'viewer_path', DEFAULT_VIEWER)
+    viewer = get_setting(g.db, 'viewer_path', config.default_viewer())
     if not os.path.exists(viewer):
         return jsonify({"error": f"閱讀器不存在: {viewer}"}), 404
 
@@ -281,9 +300,10 @@ def read_file(did):
 def api_get_settings():
     from flask import g
     settings = get_all_settings(g.db)
-    # 設定預設值
     if 'viewer_path' not in settings:
-        settings['viewer_path'] = DEFAULT_VIEWER
+        settings['viewer_path'] = config.default_viewer()
+    if 'scan_roots' not in settings:
+        settings['scan_roots'] = '[]'
     return jsonify(settings)
 
 
@@ -291,9 +311,12 @@ def api_get_settings():
 def api_update_settings():
     from flask import g
     data = request.get_json()
-    allowed_keys = {'viewer_path'}
+    allowed_keys = {'viewer_path', 'scan_roots'}
     for key, value in data.items():
         if key in allowed_keys:
+            # scan_roots 需要是 JSON 字串
+            if key == 'scan_roots' and isinstance(value, list):
+                value = json.dumps(value, ensure_ascii=False)
             set_setting(g.db, key, value)
     return jsonify({"ok": True})
 
@@ -309,10 +332,27 @@ def api_stats():
 def api_rescan():
     """觸發重新掃描。"""
     from scan import scan
-    scan()
-    return jsonify({"ok": True})
+    result = scan()
+    return jsonify({"ok": True, **(result or {})})
+
+
+def _migrate_scan_roots():
+    """首次啟動遷移：如果 DB 沒有 scan_roots 設定，檢查舊資料推斷。"""
+    conn = get_db()
+    existing = get_setting(conn, 'scan_roots', '')
+    if not existing or existing == '[]':
+        # 從現有資料的 filepath 推斷根目錄
+        rows = conn.execute(
+            "SELECT DISTINCT source FROM doujinshi WHERE source IS NOT NULL"
+        ).fetchall()
+        if rows:
+            # 有舊資料但沒設定 scan_roots，不自動猜測
+            # 使用者需要到設定頁面手動新增
+            pass
+    conn.close()
 
 
 if __name__ == '__main__':
     init_db()
-    app.run(debug=True, port=5000)
+    _migrate_scan_roots()
+    app.run(debug=config.DEBUG, port=config.PORT)

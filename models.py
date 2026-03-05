@@ -5,7 +5,9 @@ import json
 from pathlib import Path
 from typing import Optional
 
-DB_PATH = Path(__file__).parent / "doujin.db"
+import config
+
+DB_PATH = config.DB_PATH
 
 
 def get_db(db_path: Optional[Path] = None) -> sqlite3.Connection:

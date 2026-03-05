@@ -11,13 +11,13 @@
 - **前端**: 純 HTML/CSS/JS（無框架）+ 自訂 Autocomplete 元件
 - **縮圖**: Pillow 生成 webp，背景 ThreadPoolExecutor 非同步處理
 - **閱讀器**: Honeyview（路徑可在設定頁面修改）
-- **掃描來源**: `I:/同人誌/`（HDD，歸檔區）+ `H:/`（下載區）
-- **程式位置**: `L:/doujin-tagger/`（SSD）
+- **掃描來源**: 由 Web UI 設定頁面配置（DB settings 表）
+- **設定管理**: config.py 集中管理（環境變數 > config.json > 預設值）
 
 ## 檔案結構
 
 ```
-L:/doujin-tagger/
+├── config.py               # 集中設定管理（環境變數/config.json/預設值）
 ├── parser.py               # 檔名解析（場次/社團/作者/標題/原作）
 ├── models.py               # DB schema + CRUD + FTS5 + 批次操作 + settings
 ├── scan.py                 # 多來源掃描 zip 及資料夾入庫
@@ -31,8 +31,12 @@ L:/doujin-tagger/
 │   ├── style.css           # 暗色主題樣式
 │   └── autocomplete.js     # 自訂 fuzzy autocomplete 元件
 ├── thumbs/                 # 縮圖快取目錄（自動產生，gitignore）
-├── doujin.db               # SQLite 資料庫（自動產生）
-└── requirements.txt        # flask, Pillow, requests, beautifulsoup4, pykakasi
+├── doujin.db               # SQLite 資料庫（自動產生，gitignore）
+├── config.json             # 使用者設定檔（可選，gitignore）
+├── config.json.example     # 設定檔範例
+├── requirements.txt        # flask, Pillow, requests, beautifulsoup4, pykakasi
+├── LICENSE                 # MIT
+└── README.md               # 專案說明
 ```
 
 ## 檔名格式
@@ -90,14 +94,14 @@ parser.py 支援的變體：
 - **分頁**: 頁碼按鈕群 + 跳頁輸入
 - **統計**: 原作/作者/社團/場次 Top N bar chart
 - **合併管理**: 偵測重複命名並合併
-- **設定**: 閱讀器路徑可配置
+- **設定**: 掃描路徑 + 閱讀器路徑可由 Web UI 配置
 - **最近開啟**: localStorage 記錄最近 20 筆
 
 ## 啟動方式
 
 ```bash
-cd L:/doujin-tagger
 pip install -r requirements.txt
 python app.py
 # 瀏覽 http://localhost:5000
+# 首次啟動請到「設定」頁面新增掃描路徑
 ```

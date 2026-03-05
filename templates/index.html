@@ -75,6 +75,17 @@
             <div class="tag-filter-row" id="tag-filters"></div>
         </div>
         <div class="active-filters" id="active-filters"></div>
+        <div class="browse-panel" id="browse-panel" style="display:none">
+            <div class="browse-tabs">
+                <button class="browse-tab active" onclick="switchBrowseTab(this,'parody')">原作</button>
+                <button class="browse-tab" onclick="switchBrowseTab(this,'author')">作者</button>
+                <button class="browse-tab" onclick="switchBrowseTab(this,'circle')">社團</button>
+                <button class="browse-tab" onclick="switchBrowseTab(this,'event')">場次</button>
+                <button class="browse-tab" onclick="switchBrowseTab(this,'tags')">Tags</button>
+                <input type="text" class="browse-search" id="browse-search" placeholder="篩選..." oninput="filterBrowseList()">
+            </div>
+            <div class="browse-list" id="browse-list"></div>
+        </div>
         <div class="action-row">
             <span id="result-count"></span>
             <div class="sort-controls">
@@ -89,6 +100,7 @@
                 <button id="sort-order" class="btn-sort-order" onclick="toggleSortOrder()" title="切換排序方向">↓</button>
             </div>
             <button onclick="clearFilters()">清除篩選</button>
+            <button onclick="toggleBrowsePanel()" id="btn-browse">瀏覽清單</button>
             <div class="view-toggle">
                 <button id="btn-list" class="view-btn active" onclick="setViewMode('list')" title="列表模式">
                     <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="0" y="1" width="16" height="3" rx="1"/><rect x="0" y="6.5" width="16" height="3" rx="1"/><rect x="0" y="12" width="16" height="3" rx="1"/></svg>
@@ -150,9 +162,24 @@
         <section class="settings-page">
             <h2>設定</h2>
             <div class="setting-group">
+                <label>掃描路徑</label>
+                <div id="scan-roots-list"></div>
+                <div class="setting-input-row">
+                    <input type="text" id="new-scan-path" placeholder="例: D:/同人誌">
+                </div>
+                <div class="setting-input-row" style="margin-top:6px">
+                    <select id="new-scan-source">
+                        <option value="archive">歸檔區</option>
+                        <option value="downloads">下載區</option>
+                    </select>
+                    <button onclick="addScanRoot()" class="btn-open">新增</button>
+                </div>
+                <div class="setting-hint">同人誌所在的資料夾路徑。歸檔區＝已整理，下載區＝新下載未整理。新增後請點「重新掃描」。</div>
+            </div>
+            <div class="setting-group">
                 <label>閱讀器路徑</label>
                 <div class="setting-input-row">
-                    <input type="text" id="setting-viewer-path" placeholder="C:\Program Files\Honeyview\Honeyview.exe">
+                    <input type="text" id="setting-viewer-path" placeholder="閱讀器程式路徑（留空則用系統預設）">
                     <button onclick="saveSettings()" class="btn-open">儲存</button>
                 </div>
                 <div class="setting-hint">用於「閱讀」按鈕開啟檔案的程式路徑</div>
@@ -389,6 +416,79 @@ function renderTagFilters() {
 
 function getSelectedTags() {
     return [...document.querySelectorAll('#tag-filters input:checked')].map(cb => cb.value);
+}
+
+// ── 瀏覽面板 ──
+let browseData = {};
+let currentBrowseTab = 'parody';
+
+function toggleBrowsePanel() {
+    const panel = document.getElementById('browse-panel');
+    const visible = panel.style.display !== 'none';
+    panel.style.display = visible ? 'none' : '';
+    if (!visible) loadBrowseData();
+}
+
+async function loadBrowseData() {
+    const [filterRes, tagRes] = await Promise.all([fetch('/api/filters'), fetch('/api/tags')]);
+    const filters = await filterRes.json();
+    const tags = await tagRes.json();
+    browseData = {
+        parody: filters.parody || [],
+        author: filters.author || [],
+        circle: filters.circle || [],
+        event: filters.event || [],
+        tags: tags.map(t => ({value: t.name, count: t.count})),
+    };
+    renderBrowseList();
+}
+
+function switchBrowseTab(btn, tab) {
+    currentBrowseTab = tab;
+    document.querySelectorAll('.browse-tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('browse-search').value = '';
+    renderBrowseList();
+}
+
+function renderBrowseList() {
+    const list = document.getElementById('browse-list');
+    const items = browseData[currentBrowseTab] || [];
+    const search = document.getElementById('browse-search').value.toLowerCase();
+    const filtered = search ? items.filter(i => i.value.toLowerCase().includes(search)) : items;
+    const sorted = [...filtered].sort((a, b) => b.count - a.count);
+
+    if (sorted.length === 0) {
+        list.innerHTML = '<div class="browse-empty">無資料</div>';
+        return;
+    }
+    const maxCount = sorted[0].count;
+    list.innerHTML = sorted.map(item => {
+        const pct = maxCount > 0 ? (item.count / maxCount * 100) : 0;
+        return `<div class="browse-item" onclick="applyBrowseFilter('${currentBrowseTab}',${JSON.stringify(item.value)})">
+            <div class="browse-bar" style="width:${pct}%"></div>
+            <span class="browse-label">${esc(item.value)}</span>
+            <span class="browse-count">${item.count}</span>
+        </div>`;
+    }).join('');
+}
+
+function filterBrowseList() { renderBrowseList(); }
+
+function applyBrowseFilter(field, value) {
+    if (field === 'tags') {
+        const cb = document.querySelector(`#tag-filters input[value="${CSS.escape(value)}"]`);
+        if (cb && !cb.checked) { cb.checked = true; debounceSearch(); }
+        return;
+    }
+    const inputMap = {event:'f-event', parody:'f-parody', circle:'f-circle', author:'f-author'};
+    const input = document.getElementById(inputMap[field]);
+    if (input) {
+        input.value = value;
+        if (acInstances[inputMap[field]]) acInstances[inputMap[field]]._close();
+        currentPage = 1;
+        doSearch();
+    }
 }
 
 // ── 批次操作 ──
@@ -673,8 +773,34 @@ function renderResults(items) {
         <button onclick="showEditModal(${item.id})" class="btn-secondary">編輯</button>
         ${item.filepath && item.filepath.toLowerCase().endsWith('.zip') ? `<button onclick="deleteFile(${item.id}, '${esc(item.filename).replace(/'/g, "\\'")}')" class="btn-delete">刪除</button>` : ''}`;
 
+    /* ── 縮圖輪詢機制 ── */
+    let _thumbPollTimer = null;
+
+    function startThumbPolling() {
+        if (_thumbPollTimer) clearInterval(_thumbPollTimer);
+        let tick = 0;
+        _thumbPollTimer = setInterval(() => {
+            const imgs = document.querySelectorAll('.thumb-img');
+            let pending = 0;
+            imgs.forEach(img => {
+                // 已載入真實縮圖（寬度 > 1px）→ 跳過
+                if (img.complete && img.naturalWidth > 1) return;
+                pending++;
+                // 每 3 秒 reload 一次 src（no-store 確保不用快取）
+                const base = img.dataset.thumbUrl;
+                if (base) img.src = base + '?t=' + Date.now();
+            });
+            tick++;
+            // 全部載入完成或超過 60 次（~3 分鐘）→ 停止
+            if (pending === 0 || tick > 60) {
+                clearInterval(_thumbPollTimer);
+                _thumbPollTimer = null;
+            }
+        }, 3000);
+    }
+
     const thumbHtml = item =>
-        `<img src="/api/thumb/${item.id}" class="thumb-img" loading="lazy" alt="" onerror="this.classList.add('thumb-error')">`;
+        `<img data-thumb-url="/api/thumb/${item.id}" src="/api/thumb/${item.id}" class="thumb-img" loading="lazy" alt="">`;
 
     const checkboxHtml = item => {
         const checked = selectedIds.has(item.id) ? 'checked' : '';
@@ -708,6 +834,9 @@ function renderResults(items) {
             </div>
         `).join('');
     }
+
+    // 開始輪詢尚未載入的縮圖
+    startThumbPolling();
 }
 
 function esc(s) {
@@ -1025,10 +1154,55 @@ function timeAgo(ts) {
 }
 
 // ── 設定 ──
+let _scanRoots = [];
+
 async function loadSettings() {
     const res = await fetch('/api/settings');
     const data = await res.json();
     document.getElementById('setting-viewer-path').value = data.viewer_path || '';
+    try { _scanRoots = JSON.parse(data.scan_roots || '[]'); } catch(e) { _scanRoots = []; }
+    renderScanRoots();
+}
+
+function renderScanRoots() {
+    const container = document.getElementById('scan-roots-list');
+    if (!_scanRoots.length) {
+        container.innerHTML = '<div class="setting-hint" style="color:var(--warning)">尚未設定掃描路徑。請新增至少一個掃描來源。</div>';
+        return;
+    }
+    container.innerHTML = _scanRoots.map((r, i) => `
+        <div class="scan-root-item">
+            <span class="scan-root-path">${esc(r.path)}</span>
+            <span class="scan-root-label badge">${esc(r.label || r.source || '')}</span>
+            <button class="btn-delete-small" onclick="removeScanRoot(${i})">移除</button>
+        </div>
+    `).join('');
+}
+
+async function addScanRoot() {
+    const path = document.getElementById('new-scan-path').value.trim();
+    if (!path) { showToast('請輸入路徑', 'error'); return; }
+    const sel = document.getElementById('new-scan-source');
+    const source = sel.value;
+    const label = sel.options[sel.selectedIndex].text;
+    _scanRoots.push({path, source, label});
+    await saveScanRoots();
+    document.getElementById('new-scan-path').value = '';
+}
+
+async function removeScanRoot(idx) {
+    _scanRoots.splice(idx, 1);
+    await saveScanRoots();
+}
+
+async function saveScanRoots() {
+    await fetch('/api/settings', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({scan_roots: _scanRoots})
+    });
+    renderScanRoots();
+    showToast('掃描路徑已更新');
 }
 
 async function saveSettings() {

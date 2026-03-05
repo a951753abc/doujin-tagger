@@ -1,0 +1,7 @@
+{
+    "port": 5000,
+    "debug": false,
+    "thumb_workers": 4,
+    "thumb_size": "300x400",
+    "thumb_quality": 80
+}
