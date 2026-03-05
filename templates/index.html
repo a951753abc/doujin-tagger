@@ -284,6 +284,24 @@ function getSelectedTags() {
     return [...document.querySelectorAll('#tag-filters input:checked')].map(cb => cb.value);
 }
 
+// ── Badge 點擊篩選（event delegation）──
+document.getElementById('results').addEventListener('click', e => {
+    const badge = e.target.closest('[data-filter-field]');
+    if (!badge) return;
+    const field = badge.dataset.filterField;
+    const value = badge.dataset.filterValue;
+    const fieldMap = {event: 'f-event', circle: 'f-circle', author: 'f-author', parody: 'f-parody'};
+    const inputId = fieldMap[field];
+    if (!inputId) return;
+    // 取消對應的 null checkbox
+    const nullCb = document.getElementById(`null-${field}`);
+    if (nullCb) nullCb.checked = false;
+    document.getElementById(inputId).value = value;
+    currentPage = 1;
+    doSearch();
+    showToast(`篩選 ${field}: ${value}`, 'info');
+});
+
 // ── 活躍篩選 Pill ──
 function renderActiveFilters() {
     const container = document.getElementById('active-filters');
@@ -409,10 +427,10 @@ function renderResults(items) {
         <div class="card" data-id="${item.id}">
             <div class="card-title">${esc(item.title || item.filename)}</div>
             <div class="card-meta">
-                ${item.event ? `<span class="meta-badge event" title="場次">${esc(item.event)}</span>` : ''}
-                ${item.circle ? `<span class="meta-badge circle" title="社團">${esc(item.circle)}</span>` : ''}
-                ${item.author ? `<span class="meta-badge author" title="作者">${esc(item.author)}</span>` : ''}
-                ${item.parody ? `<span class="meta-badge parody" title="原作">${esc(item.parody)}</span>` : ''}
+                ${item.event ? `<span class="meta-badge event clickable" data-filter-field="event" data-filter-value="${esc(item.event)}" title="篩選場次: ${esc(item.event)}">${esc(item.event)}</span>` : ''}
+                ${item.circle ? `<span class="meta-badge circle clickable" data-filter-field="circle" data-filter-value="${esc(item.circle)}" title="篩選社團: ${esc(item.circle)}">${esc(item.circle)}</span>` : ''}
+                ${item.author ? `<span class="meta-badge author clickable" data-filter-field="author" data-filter-value="${esc(item.author)}" title="篩選作者: ${esc(item.author)}">${esc(item.author)}</span>` : ''}
+                ${item.parody ? `<span class="meta-badge parody clickable" data-filter-field="parody" data-filter-value="${esc(item.parody)}" title="篩選原作: ${esc(item.parody)}">${esc(item.parody)}</span>` : ''}
                 ${item.is_dl ? '<span class="meta-badge dl">DL版</span>' : ''}
                 ${item.category && item.category !== '同人誌' ? `<span class="meta-badge cat-${item.category === 'CG' ? 'cg' : 'commercial'}">${esc(item.category)}</span>` : ''}
                 ${item.source === 'downloads' ? '<span class="meta-badge source-dl">下載區</span>' : ''}

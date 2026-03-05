@@ -493,6 +493,8 @@ header button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
     transition: opacity var(--transition-fast);
 }
 .meta-badge:hover { opacity: 0.85; }
+.meta-badge.clickable { cursor: pointer; }
+.meta-badge.clickable:hover { transform: scale(1.05); opacity: 0.9; }
 .meta-badge.event  { background: var(--badge-event); }
 .meta-badge.circle { background: var(--badge-circle); }
 .meta-badge.author { background: var(--badge-author); }
