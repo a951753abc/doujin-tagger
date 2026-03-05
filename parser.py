@@ -14,6 +14,7 @@ class ParsedDoujinshi:
     title: Optional[str] = None       # 作品標題
     parody: Optional[str] = None      # 原作作品名
     is_dl: bool = False               # DL版
+    detected_category: Optional[str] = None  # 從檔名偵測到的分類
 
     def to_dict(self):
         return asdict(self)
@@ -43,6 +44,24 @@ SKIP_TAGS = re.compile(
 
 # 前綴垃圾 pattern
 PREFIX_JUNK = re.compile(r'^\[[^\]]*@[^\]]*\]\s*')  # [firelee@2DJGAME]
+
+# 商業誌分類前綴（這些不是場次，而是分類標記）
+COMMERCIAL_CATEGORIES = {
+    '成年コミック': '成年コミック',
+    '官能小説・エロライトノベル': '官能小説',
+    '官能小説': '官能小説',
+    'エロライトノベル': '官能小説',
+    'エロ漫画': '成年コミック',
+    '一般コミック': '一般コミック',
+    'アダルトコミック': '成年コミック',
+}
+
+# 商業誌前綴 pattern
+COMMERCIAL_PATTERN = re.compile(
+    r'^\('
+    r'(' + '|'.join(re.escape(k) for k in COMMERCIAL_CATEGORIES) + r')'
+    r'\)\s*'
+)
 
 
 def parse_filename(filename: str) -> ParsedDoujinshi:
@@ -79,8 +98,16 @@ def parse_filename(filename: str) -> ParsedDoujinshi:
     # 移除尾部方括號標記 [DL版] [Chinese] 等
     name = SKIP_TAGS.sub('', name)
 
-    # 移除 (別スキャン) 等尾部括號標記
+    # 移除日期標記 [2009-10-28] [2014-04-30] 等
+    name = re.sub(r'\s*\[\d{4}[-/]\d{2}[-/]\d{2}\]\s*', ' ', name)
+
+    # 移除 (別スキャン) (修正版) (Full HQ Scan) 等尾部括號標記
     name = re.sub(r'\s*\(別スキャン\)\s*', '', name)
+    name = re.sub(r'\s*\(修正版\)\s*', '', name)
+    name = re.sub(r'\s*\(Full HQ Scan\)\s*', '', name)
+
+    # 移除 [DLsite限定特典付き] 等商業誌尾部標記
+    name = re.sub(r'\s*\[DLsite[^\]]*\]\s*', '', name)
 
     name = name.strip()
 
@@ -89,40 +116,57 @@ def parse_filename(filename: str) -> ParsedDoujinshi:
     author = None
     title = None
     parody = None
+    detected_category = None
+    is_commercial = False
 
-    # 1) 解析場次
-    event_match = EVENT_PATTERN.match(name)
-    if event_match:
-        event_raw = event_match.group(1).strip()
-        # 排除非場次的括號內容（如純日文描述太長的）
-        # 已知場次通常含英數字或特定日文場次名
-        event = event_raw
-        name = name[event_match.end():]
+    # 0) 先檢查商業誌分類前綴
+    commercial_match = COMMERCIAL_PATTERN.match(name)
+    if commercial_match:
+        cat_raw = commercial_match.group(1).strip()
+        detected_category = COMMERCIAL_CATEGORIES.get(cat_raw, cat_raw)
+        is_commercial = True
+        name = name[commercial_match.end():]
 
-    # 也處理 (同人誌) (C90) 的情況（同人誌已被移除，剩 (C90)）
-    if not event:
-        retry_match = EVENT_PATTERN.match(name)
-        if retry_match:
-            event = retry_match.group(1).strip()
-            name = name[retry_match.end():]
+    # 1) 解析場次（商業誌不解析場次）
+    if not is_commercial:
+        event_match = EVENT_PATTERN.match(name)
+        if event_match:
+            event_raw = event_match.group(1).strip()
+            event = event_raw
+            name = name[event_match.end():]
+
+        # 也處理 (同人誌) (C90) 的情況（同人誌已被移除，剩 (C90)）
+        if not event:
+            retry_match = EVENT_PATTERN.match(name)
+            if retry_match:
+                event = retry_match.group(1).strip()
+                name = name[retry_match.end():]
 
     # 2) 解析社團和作者：[社團名 (作者名)] 或 [社團名]
-    # 注意：可能有 [180529] 這種日期前綴，要跳過
-    date_prefix = re.match(r'\[\d{6}\]\s*', name)
+    # 跳過日期前綴：[180529] 或 [2012-04-01] 格式
+    date_prefix = re.match(r'\[\d{4}[-/]\d{2}[-/]\d{2}\]\s*|\[\d{6}\]\s*', name)
     if date_prefix:
         name = name[date_prefix.end():]
+
+    # 跳過 [RJxxxxxx] DLsite 編號
+    rj_prefix = re.match(r'\[RJ\d+\]\s*', name, re.IGNORECASE)
+    if rj_prefix:
+        name = name[rj_prefix.end():]
 
     circle_match = re.match(r'\[([^\]]+)\]\s*', name)
     if circle_match:
         circle_raw = circle_match.group(1).strip()
-        # 檢查是否有 (作者名) 在社團名內
-        # 要從最後一個 ( 匹配，因為社團名本身可能含括號
-        author_match = re.match(r'^(.+?)\s*\(([^)]+)\)$', circle_raw)
-        if author_match:
-            circle = author_match.group(1).strip()
-            author = author_match.group(2).strip()
+        if is_commercial:
+            # 商業誌：[name] 是作者（可能有多個用逗號分隔）
+            author = circle_raw
         else:
-            circle = circle_raw
+            # 同人誌：[社團 (作者)] 或 [社團]
+            author_match = re.match(r'^(.+?)\s*\(([^)]+)\)$', circle_raw)
+            if author_match:
+                circle = author_match.group(1).strip()
+                author = author_match.group(2).strip()
+            else:
+                circle = circle_raw
         name = name[circle_match.end():]
 
     # 3) 剩餘部分：標題 (原作)
@@ -148,6 +192,7 @@ def parse_filename(filename: str) -> ParsedDoujinshi:
         title=title or None,
         parody=parody or None,
         is_dl=is_dl,
+        detected_category=detected_category,
     )
 
 
