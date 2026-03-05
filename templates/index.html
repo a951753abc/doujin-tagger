@@ -688,11 +688,44 @@ function renderPagination(total, page, perPage) {
     const container = document.getElementById('pagination');
     if (totalPages <= 1) { container.innerHTML = ''; return; }
 
+    const range = 2;
     let html = '';
-    if (page > 1) html += `<button onclick="goPage(${page-1})">← 上一頁</button>`;
-    html += `<span class="page-info">第 ${page} / ${totalPages} 頁</span>`;
-    if (page < totalPages) html += `<button onclick="goPage(${page+1})">下一頁 →</button>`;
+
+    if (page > 1) html += `<button class="page-btn" onclick="goPage(${page-1})">←</button>`;
+
+    // 第一頁
+    html += pageBtn(1, page);
+    if (page - range > 2) html += '<span class="page-ellipsis">…</span>';
+
+    // 中間頁碼
+    for (let i = Math.max(2, page - range); i <= Math.min(totalPages - 1, page + range); i++) {
+        html += pageBtn(i, page);
+    }
+
+    // 最後一頁
+    if (page + range < totalPages - 1) html += '<span class="page-ellipsis">…</span>';
+    if (totalPages > 1) html += pageBtn(totalPages, page);
+
+    if (page < totalPages) html += `<button class="page-btn" onclick="goPage(${page+1})">→</button>`;
+
+    // 跳頁
+    html += `<span class="page-jump-group">
+        <input type="number" class="page-jump" id="page-jump-input" min="1" max="${totalPages}" placeholder="頁"
+               onkeydown="if(event.key==='Enter')jumpToPage(${totalPages})">
+        <button class="page-btn" onclick="jumpToPage(${totalPages})">Go</button>
+    </span>`;
+
     container.innerHTML = html;
+}
+
+function pageBtn(num, current) {
+    return `<button class="page-btn${num === current ? ' active' : ''}" onclick="goPage(${num})">${num}</button>`;
+}
+
+function jumpToPage(max) {
+    const input = document.getElementById('page-jump-input');
+    const p = parseInt(input.value);
+    if (p >= 1 && p <= max) goPage(p);
 }
 
 function goPage(p) {
