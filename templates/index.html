@@ -14,6 +14,11 @@
             <button id="nav-search" class="active" onclick="showPage('search')">搜尋</button>
             <button id="nav-stats" onclick="showPage('stats')">統計</button>
             <button id="nav-merge" onclick="showPage('merge')">合併管理</button>
+            <button id="nav-settings" onclick="showPage('settings')">設定</button>
+            <div class="recent-dropdown" id="recent-dropdown">
+                <button id="btn-recent" onclick="toggleRecent()">最近開啟</button>
+                <div class="recent-list" id="recent-list" style="display:none"></div>
+            </div>
             <button id="btn-rescan" onclick="rescan()">重新掃描</button>
         </div>
     </header>
@@ -137,6 +142,21 @@
                 <span class="merge-summary" id="merge-summary"></span>
             </div>
             <div id="merge-list"></div>
+        </section>
+    </div>
+
+    <!-- 設定頁面 -->
+    <div id="page-settings" style="display:none">
+        <section class="settings-page">
+            <h2>設定</h2>
+            <div class="setting-group">
+                <label>閱讀器路徑</label>
+                <div class="setting-input-row">
+                    <input type="text" id="setting-viewer-path" placeholder="C:\Program Files\Honeyview\Honeyview.exe">
+                    <button onclick="saveSettings()" class="btn-open">儲存</button>
+                </div>
+                <div class="setting-hint">用於「閱讀」按鈕開啟檔案的程式路徑</div>
+            </div>
         </section>
     </div>
 
@@ -648,7 +668,8 @@ function renderResults(items) {
         </span>`;
 
     const actionsHtml = item => `
-        <button onclick="openFile(${item.id})" class="btn-open">開啟</button>
+        <button onclick="readFile(${item.id}, '${esc(item.title || item.filename).replace(/'/g, "\\'")}')" class="btn-read">閱讀</button>
+        <button onclick="openFile(${item.id})" class="btn-secondary">開啟</button>
         <button onclick="showEditModal(${item.id})" class="btn-secondary">編輯</button>
         ${item.filepath && item.filepath.toLowerCase().endsWith('.zip') ? `<button onclick="deleteFile(${item.id}, '${esc(item.filename).replace(/'/g, "\\'")}')" class="btn-delete">刪除</button>` : ''}`;
 
@@ -937,6 +958,89 @@ function clearFilters() {
     doSearch();
 }
 
+// ── 閱讀（Honeyview）──
+async function readFile(id, title) {
+    const res = await fetch(`/read/${id}`);
+    const data = await res.json();
+    if (data.error) {
+        showToast('閱讀失敗: ' + data.error, 'error');
+    } else {
+        addToRecent(id, title);
+    }
+}
+
+// ── 最近開啟 ──
+function getRecent() {
+    try { return JSON.parse(localStorage.getItem('recentOpened') || '[]'); }
+    catch { return []; }
+}
+
+function addToRecent(id, title) {
+    let recent = getRecent().filter(r => r.id !== id);
+    recent.unshift({id, title, time: Date.now()});
+    if (recent.length > 20) recent = recent.slice(0, 20);
+    localStorage.setItem('recentOpened', JSON.stringify(recent));
+}
+
+function toggleRecent() {
+    const list = document.getElementById('recent-list');
+    if (list.style.display === 'none') {
+        const recent = getRecent();
+        if (recent.length === 0) {
+            list.innerHTML = '<div class="recent-empty">尚無記錄</div>';
+        } else {
+            list.innerHTML = recent.map(r => {
+                const ago = timeAgo(r.time);
+                return `<div class="recent-item" onclick="readFile(${r.id}, '${esc(r.title).replace(/'/g, "\\'")}'); document.getElementById('recent-list').style.display='none'">
+                    <span class="recent-title">${esc(r.title)}</span>
+                    <span class="recent-time">${ago}</span>
+                </div>`;
+            }).join('');
+        }
+        list.style.display = 'block';
+        // 點擊外部關閉
+        setTimeout(() => {
+            const close = (e) => {
+                if (!document.getElementById('recent-dropdown').contains(e.target)) {
+                    list.style.display = 'none';
+                    document.removeEventListener('click', close);
+                }
+            };
+            document.addEventListener('click', close);
+        }, 0);
+    } else {
+        list.style.display = 'none';
+    }
+}
+
+function timeAgo(ts) {
+    const diff = Date.now() - ts;
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return '剛才';
+    if (mins < 60) return `${mins} 分鐘前`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs} 小時前`;
+    const days = Math.floor(hrs / 24);
+    return `${days} 天前`;
+}
+
+// ── 設定 ──
+async function loadSettings() {
+    const res = await fetch('/api/settings');
+    const data = await res.json();
+    document.getElementById('setting-viewer-path').value = data.viewer_path || '';
+}
+
+async function saveSettings() {
+    const viewerPath = document.getElementById('setting-viewer-path').value.trim();
+    await fetch('/api/settings', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({viewer_path: viewerPath})
+    });
+    showToast('設定已儲存');
+}
+
 // ── 重新掃描 ──
 async function rescan() {
     const btn = document.getElementById('btn-rescan');
@@ -956,26 +1060,32 @@ async function rescan() {
 // ── 頁面切換 ──
 function showPage(page) {
     const searchEls = [document.querySelector('.filters'), document.getElementById('results'), document.getElementById('pagination'), document.getElementById('batch-toolbar')];
-    const mergeEl = document.getElementById('page-merge');
-    const statsEl = document.getElementById('page-stats');
+    const pages = {
+        merge: document.getElementById('page-merge'),
+        stats: document.getElementById('page-stats'),
+        settings: document.getElementById('page-settings'),
+    };
 
     document.getElementById('nav-search').classList.toggle('active', page === 'search');
     document.getElementById('nav-merge').classList.toggle('active', page === 'merge');
     document.getElementById('nav-stats').classList.toggle('active', page === 'stats');
+    document.getElementById('nav-settings').classList.toggle('active', page === 'settings');
 
     searchEls.forEach(el => el.style.display = 'none');
-    mergeEl.style.display = 'none';
-    statsEl.style.display = 'none';
+    Object.values(pages).forEach(el => el.style.display = 'none');
 
     if (page === 'search') {
         searchEls.forEach(el => el.style.display = '');
         updateBatchToolbar();
     } else if (page === 'merge') {
-        mergeEl.style.display = '';
+        pages.merge.style.display = '';
         loadDuplicates();
     } else if (page === 'stats') {
-        statsEl.style.display = '';
+        pages.stats.style.display = '';
         loadStats();
+    } else if (page === 'settings') {
+        pages.settings.style.display = '';
+        loadSettings();
     }
 }
 

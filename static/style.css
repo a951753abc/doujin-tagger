@@ -1406,6 +1406,116 @@ header button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
     font-size: 0.95rem;
 }
 
+/* ── 設定頁面 ── */
+.settings-page { padding: 24px 28px; max-width: 600px; }
+.settings-page h2 { font-size: 1.1rem; font-weight: 600; margin-bottom: 20px; }
+
+.setting-group {
+    margin-bottom: 20px;
+}
+
+.setting-group label {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+}
+
+.setting-input-row {
+    display: flex;
+    gap: 8px;
+}
+
+.setting-input-row input {
+    flex: 1;
+    padding: 9px 12px;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 0.9rem;
+    font-family: inherit;
+    outline: none;
+}
+.setting-input-row input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus-ring); }
+
+.setting-hint {
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    margin-top: 4px;
+}
+
+/* ── 閱讀按鈕 ── */
+.btn-read {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 7px 22px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-size: 0.82rem;
+    font-weight: 500;
+    font-family: inherit;
+    transition: background var(--transition-fast), transform var(--transition-fast);
+}
+.btn-read:hover { background: var(--accent-hover); }
+.btn-read:active { transform: scale(0.97); }
+
+/* ── 最近開啟 ── */
+.recent-dropdown {
+    position: relative;
+}
+
+.recent-list {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    z-index: 200;
+    width: 320px;
+    max-height: 400px;
+    overflow-y: auto;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    margin-top: 4px;
+}
+
+.recent-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 14px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border);
+    transition: background var(--transition-fast);
+}
+.recent-item:last-child { border-bottom: none; }
+.recent-item:hover { background: var(--surface-hover); }
+
+.recent-title {
+    flex: 1;
+    font-size: 0.82rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin-right: 8px;
+}
+
+.recent-time {
+    font-size: 0.68rem;
+    color: var(--text-dim);
+    flex-shrink: 0;
+}
+
+.recent-empty {
+    padding: 20px;
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 0.85rem;
+}
+
 /* ── 統計 Dashboard ── */
 .stats-page { padding: 24px 28px; }
 

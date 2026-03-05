@@ -113,9 +113,35 @@ def init_db(conn: Optional[sqlite3.Connection] = None):
     except sqlite3.OperationalError:
         pass
 
+    # Settings 表
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS settings (
+            key   TEXT PRIMARY KEY,
+            value TEXT
+        )
+    """)
+
     conn.commit()
     if close:
         conn.close()
+
+
+def get_setting(conn, key: str, default: str = "") -> str:
+    row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+    return row[0] if row else default
+
+
+def set_setting(conn, key: str, value: str):
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?",
+        (key, value, value)
+    )
+    conn.commit()
+
+
+def get_all_settings(conn) -> dict:
+    rows = conn.execute("SELECT key, value FROM settings").fetchall()
+    return {r[0]: r[1] for r in rows}
 
 
 def insert_doujinshi(conn, parsed, filepath: str, folder: str,

@@ -8,8 +8,10 @@ from flask import Flask, render_template, request, jsonify, send_file
 from models import (
     get_db, init_db, search_doujinshi, get_doujinshi,
     update_doujinshi, add_tag, remove_tag, get_all_tags, get_filter_options,
-    batch_add_tag, batch_update, get_stats
+    batch_add_tag, batch_update, get_stats, get_setting, set_setting, get_all_settings
 )
+
+DEFAULT_VIEWER = r"C:\Program Files\Honeyview\Honeyview.exe"
 from normalize import find_duplicates_for_field, merge_field_values
 from thumbs import ThumbWorker, get_thumbnail_path
 
@@ -249,6 +251,51 @@ def api_thumb(did):
         thumb_worker.submit(item['filepath'], did)
     # 回傳 1x1 透明 webp placeholder
     return '', 202
+
+
+@app.route('/read/<int:did>')
+def read_file(did):
+    """用設定的閱讀器（Honeyview）開啟檔案。"""
+    from flask import g
+    item = get_doujinshi(g.db, did)
+    if not item:
+        return jsonify({"error": "not found"}), 404
+
+    filepath = item['filepath']
+    norm_path = os.path.normpath(filepath)
+    if not any(norm_path.startswith(os.path.normpath(r)) for r in ALLOWED_ROOTS):
+        return jsonify({"error": "invalid path"}), 403
+
+    if not os.path.exists(filepath):
+        return jsonify({"error": "file not found"}), 404
+
+    viewer = get_setting(g.db, 'viewer_path', DEFAULT_VIEWER)
+    if not os.path.exists(viewer):
+        return jsonify({"error": f"閱讀器不存在: {viewer}"}), 404
+
+    subprocess.Popen([viewer, filepath])
+    return jsonify({"ok": True})
+
+
+@app.route('/api/settings', methods=['GET'])
+def api_get_settings():
+    from flask import g
+    settings = get_all_settings(g.db)
+    # 設定預設值
+    if 'viewer_path' not in settings:
+        settings['viewer_path'] = DEFAULT_VIEWER
+    return jsonify(settings)
+
+
+@app.route('/api/settings', methods=['PUT'])
+def api_update_settings():
+    from flask import g
+    data = request.get_json()
+    allowed_keys = {'viewer_path'}
+    for key, value in data.items():
+        if key in allowed_keys:
+            set_setting(g.db, key, value)
+    return jsonify({"ok": True})
 
 
 @app.route('/api/stats')
