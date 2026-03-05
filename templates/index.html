@@ -134,6 +134,9 @@
             </select>
             <button onclick="batchUpdateCategory()" class="btn-open">套用</button>
         </div>
+        <div class="batch-action" id="batch-move-action" style="display:none">
+            <button onclick="batchMoveToArchive()" class="btn-open">搬到歸檔區</button>
+        </div>
         <button onclick="clearSelection()" class="btn-secondary">取消選取</button>
     </div>
 
@@ -265,8 +268,11 @@ function showToast(message, type = 'success', duration = 3000) {
 // ── 初始化 ──
 async function init() {
     await Promise.all([loadFilters(), loadTags()]);
-    // 從後端取得 thumb_size 設定，套用到格子寬度
-    fetch('/api/settings').then(r => r.json()).then(d => applyThumbSizeToGrid(d.thumb_size)).catch(() => {});
+    // 從後端取得設定，套用到格子寬度 + 載入 scan_roots（供搬移功能用）
+    fetch('/api/settings').then(r => r.json()).then(d => {
+        applyThumbSizeToGrid(d.thumb_size);
+        try { _scanRoots = JSON.parse(d.scan_roots || '[]'); } catch(e) {}
+    }).catch(() => {});
     initViewMode();
     doSearch();
 
@@ -517,6 +523,11 @@ function updateBatchToolbar() {
     } else {
         toolbar.style.display = 'none';
     }
+    // 只在下載區時顯示搬移按鈕
+    const moveAction = document.getElementById('batch-move-action');
+    if (moveAction) {
+        moveAction.style.display = getSelectedSource() === 'downloads' ? '' : 'none';
+    }
 }
 
 function toggleSelect(id, checkbox) {
@@ -599,6 +610,42 @@ async function batchUpdateCategory() {
     const data = await res.json();
     showToast(`已更新 ${data.updated} 筆的分類為 ${value}`);
     sel.value = '';
+    clearSelection();
+    doSearch();
+}
+
+async function batchMoveToArchive() {
+    if (selectedIds.size === 0) return;
+    // 找歸檔區路徑
+    const archiveRoots = _scanRoots.filter(r => r.source === 'archive');
+    if (!archiveRoots.length) {
+        showToast('尚未設定歸檔區路徑，請先到設定頁面新增', 'error');
+        return;
+    }
+    let targetRoot;
+    if (archiveRoots.length === 1) {
+        targetRoot = archiveRoots[0].path;
+    } else {
+        // 多個歸檔區，讓使用者選
+        const options = archiveRoots.map((r, i) => `${i + 1}. ${r.path}`).join('\n');
+        const choice = prompt(`請選擇目標歸檔區（輸入編號）：\n${options}`);
+        if (!choice) return;
+        const idx = parseInt(choice, 10) - 1;
+        if (idx < 0 || idx >= archiveRoots.length) { showToast('無效選擇', 'error'); return; }
+        targetRoot = archiveRoots[idx].path;
+    }
+    if (!confirm(`確定要將 ${selectedIds.size} 筆搬移到歸檔區？\n目標：${targetRoot}\n（依場次名稱分資料夾）`)) return;
+    const res = await fetch('/api/batch/move', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ids: [...selectedIds], target_root: targetRoot})
+    });
+    const data = await res.json();
+    if (data.moved > 0) showToast(`已搬移 ${data.moved} 筆到歸檔區`);
+    if (data.errors && data.errors.length > 0) {
+        showToast(`${data.errors.length} 筆搬移失敗`, 'error');
+        console.warn('搬移錯誤:', data.errors);
+    }
     clearSelection();
     doSearch();
 }
@@ -786,8 +833,7 @@ function renderResults(items) {
         ${item.tags.map(t => `<span class="tag-chip">${esc(t.name)} <button onclick="removeTag(${item.id},${t.id})" title="移除 tag">&times;</button></span>`).join('')}
         <button class="btn-add-tag" onclick="showAddTag(${item.id})">+ tag</button>
         <span class="add-tag-input" id="add-tag-${item.id}" style="display:none">
-            <input type="text" list="dl-all-tags" placeholder="tag 名稱"
-                   onkeydown="if(event.key==='Enter')confirmAddTag(${item.id})">
+            <input type="text" placeholder="tag 名稱">
             <button onclick="confirmAddTag(${item.id})">OK</button>
         </span>`;
 
@@ -950,7 +996,22 @@ async function deleteFile(id, filename) {
 function showAddTag(id) {
     const el = document.getElementById(`add-tag-${id}`);
     el.style.display = 'inline-flex';
-    el.querySelector('input').focus();
+    const input = el.querySelector('input');
+    input.focus();
+    // 初始化 AutoComplete（若尚未建立）
+    if (!input._ac) {
+        const ac = new AutoComplete(input, {
+            onSelect: () => confirmAddTag(id)
+        });
+        ac.setData(allTags.map(t => ({ value: t.name, count: t.count })));
+        input._ac = ac;
+        input.addEventListener('keydown', e => {
+            if (e.key === 'Enter' && !e.defaultPrevented) confirmAddTag(id);
+        });
+    } else {
+        // 更新資料（可能有新 tag）
+        input._ac.setData(allTags.map(t => ({ value: t.name, count: t.count })));
+    }
 }
 
 async function confirmAddTag(id) {
@@ -985,12 +1046,29 @@ async function showEditModal(id) {
     document.getElementById('edit-parody').value = item.parody || '';
     document.getElementById('edit-category').value = item.category || '同人誌';
     document.getElementById('edit-modal').style.display = 'flex';
+    // 為編輯欄位掛 AutoComplete
+    const editAcFields = [
+        {id: 'edit-event', src: 'f-event'},
+        {id: 'edit-circle', src: 'f-circle'},
+        {id: 'edit-author', src: 'f-author'},
+        {id: 'edit-parody', src: 'f-parody'},
+    ];
+    editAcFields.forEach(({id: eid, src}) => {
+        const input = document.getElementById(eid);
+        if (acInstances[eid]) acInstances[eid].destroy();
+        const ac = new AutoComplete(input, {});
+        if (acInstances[src]) ac.setData(acInstances[src].items);
+        acInstances[eid] = ac;
+    });
 }
 
 function closeEditModal() {
     document.getElementById('edit-modal').style.display = 'none';
     document.getElementById('web-search-results').style.display = 'none';
     document.getElementById('web-search-results').innerHTML = '';
+    ['edit-event', 'edit-circle', 'edit-author', 'edit-parody'].forEach(eid => {
+        if (acInstances[eid]) { acInstances[eid].destroy(); delete acInstances[eid]; }
+    });
 }
 
 // ── Web 搜尋建議 ──
@@ -1456,10 +1534,6 @@ function skipGroup(groupIndex) {
 // ── 啟動 ──
 document.addEventListener('DOMContentLoaded', init);
 
-// all-tags datalist (for tag autocomplete)
-const dlAllTags = document.createElement('datalist');
-dlAllTags.id = 'dl-all-tags';
-document.body.appendChild(dlAllTags);
 </script>
 </body>
 </html>

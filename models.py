@@ -446,6 +446,18 @@ def batch_add_tag(conn, doujinshi_ids: list, tag_name: str) -> dict:
     return {"added": added}
 
 
+def move_doujinshi(conn, doujinshi_id: int, new_filepath: str, new_folder: str,
+                   new_source: str = "archive"):
+    """更新搬移後的 filepath、folder、source。"""
+    conn.execute(
+        """UPDATE doujinshi
+           SET filepath = ?, folder = ?, source = ?, updated_at = CURRENT_TIMESTAMP
+           WHERE id = ?""",
+        (new_filepath, new_folder, new_source, doujinshi_id)
+    )
+    conn.commit()
+
+
 def batch_update(conn, doujinshi_ids: list, fields: dict) -> dict:
     """對多筆同人誌更新相同欄位。"""
     allowed = {'event', 'circle', 'author', 'title', 'parody', 'category'}

@@ -13,7 +13,8 @@ import config
 from models import (
     get_db, init_db, search_doujinshi, get_doujinshi,
     update_doujinshi, add_tag, remove_tag, get_all_tags, get_filter_options,
-    batch_add_tag, batch_update, get_stats, get_setting, set_setting, get_all_settings
+    batch_add_tag, batch_update, get_stats, get_setting, set_setting, get_all_settings,
+    move_doujinshi
 )
 from normalize import find_duplicates_for_field, merge_field_values
 from thumbs import ThumbWorker, get_thumbnail_path
@@ -237,6 +238,66 @@ def api_batch_tags():
         return jsonify({"error": "ids and name required"}), 400
     result = batch_add_tag(g.db, ids, name)
     return jsonify(result)
+
+
+@app.route('/api/batch/move', methods=['POST'])
+def api_batch_move():
+    """批次搬移檔案到歸檔區（依場次分資料夾）。"""
+    import shutil
+    data = request.get_json() or {}
+    ids = data.get('ids', [])
+    target_root = data.get('target_root', '').strip()
+    if not ids or not target_root:
+        return jsonify({"error": "ids and target_root required"}), 400
+
+    # 驗證 target_root 是歸檔區路徑
+    from scan import get_scan_roots
+    roots = get_scan_roots(g.db)
+    archive_paths = [str(r["path"].resolve()) for r in roots if r["source"] == "archive"]
+    target_resolved = str(Path(target_root).resolve())
+    if target_resolved not in archive_paths:
+        return jsonify({"error": "目標路徑不在歸檔區設定中"}), 403
+
+    allowed = _get_allowed_roots(g.db)
+    moved = 0
+    errors = []
+    for did in ids:
+        item = get_doujinshi(g.db, did)
+        if not item:
+            errors.append({"id": did, "error": "not found"})
+            continue
+
+        old_path = item['filepath']
+        if not _is_path_under(old_path, allowed):
+            errors.append({"id": did, "error": "invalid source path"})
+            continue
+
+        if not os.path.exists(old_path):
+            errors.append({"id": did, "error": "file not found"})
+            continue
+
+        # 決定子資料夾：場次名稱或「未分類」
+        event_folder = item['event'].strip() if item.get('event') and item['event'].strip() else '未分類'
+        dest_dir = Path(target_root) / event_folder
+        dest_dir.mkdir(parents=True, exist_ok=True)
+
+        filename = Path(old_path).name
+        dest_path = dest_dir / filename
+
+        if dest_path.exists():
+            errors.append({"id": did, "error": f"目標已存在: {filename}"})
+            continue
+
+        try:
+            shutil.move(old_path, str(dest_path))
+        except OSError as e:
+            errors.append({"id": did, "error": str(e)})
+            continue
+
+        move_doujinshi(g.db, did, str(dest_path), event_folder, "archive")
+        moved += 1
+
+    return jsonify({"moved": moved, "errors": errors})
 
 
 @app.route('/api/batch/update', methods=['PUT'])
