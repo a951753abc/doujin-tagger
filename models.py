@@ -353,6 +353,48 @@ def get_filter_options(conn):
     return result
 
 
+def get_stats(conn) -> dict:
+    """取得統計資料供 Dashboard 使用。"""
+    total = conn.execute("SELECT COUNT(*) FROM doujinshi").fetchone()[0]
+    tagged = conn.execute(
+        "SELECT COUNT(DISTINCT doujinshi_id) FROM doujinshi_tags"
+    ).fetchone()[0]
+
+    categories = conn.execute(
+        "SELECT category, COUNT(*) as cnt FROM doujinshi GROUP BY category ORDER BY cnt DESC"
+    ).fetchall()
+
+    top_parody = conn.execute(
+        "SELECT parody, COUNT(*) as cnt FROM doujinshi WHERE parody IS NOT NULL AND parody != '' "
+        "GROUP BY parody ORDER BY cnt DESC LIMIT 20"
+    ).fetchall()
+
+    top_author = conn.execute(
+        "SELECT author, COUNT(*) as cnt FROM doujinshi WHERE author IS NOT NULL AND author != '' "
+        "GROUP BY author ORDER BY cnt DESC LIMIT 20"
+    ).fetchall()
+
+    top_event = conn.execute(
+        "SELECT event, COUNT(*) as cnt FROM doujinshi WHERE event IS NOT NULL AND event != '' "
+        "GROUP BY event ORDER BY cnt DESC LIMIT 30"
+    ).fetchall()
+
+    top_circle = conn.execute(
+        "SELECT circle, COUNT(*) as cnt FROM doujinshi WHERE circle IS NOT NULL AND circle != '' "
+        "GROUP BY circle ORDER BY cnt DESC LIMIT 20"
+    ).fetchall()
+
+    return {
+        "total": total,
+        "tagged": tagged,
+        "categories": [{"name": r[0], "count": r[1]} for r in categories],
+        "top_parody": [{"name": r[0], "count": r[1]} for r in top_parody],
+        "top_author": [{"name": r[0], "count": r[1]} for r in top_author],
+        "top_event": [{"name": r[0], "count": r[1]} for r in top_event],
+        "top_circle": [{"name": r[0], "count": r[1]} for r in top_circle],
+    }
+
+
 def batch_add_tag(conn, doujinshi_ids: list, tag_name: str) -> dict:
     """對多筆同人誌加上同一個 tag。"""
     tag_name = tag_name.strip()

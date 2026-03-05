@@ -5,12 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>同人誌搜尋系統</title>
     <link rel="stylesheet" href="/static/style.css">
+    <script src="/static/autocomplete.js"></script>
 </head>
 <body>
     <header>
         <h1>同人誌搜尋系統</h1>
         <div class="header-nav">
             <button id="nav-search" class="active" onclick="showPage('search')">搜尋</button>
+            <button id="nav-stats" onclick="showPage('stats')">統計</button>
             <button id="nav-merge" onclick="showPage('merge')">合併管理</button>
             <button id="btn-rescan" onclick="rescan()">重新掃描</button>
         </div>
@@ -44,23 +46,19 @@
             <div class="filter-row">
                 <div class="filter-group">
                     <label>場次</label>
-                    <input type="text" id="f-event" list="dl-event" placeholder="輸入篩選…">
-                    <datalist id="dl-event"></datalist>
+                    <input type="text" id="f-event" placeholder="輸入篩選…">
                 </div>
                 <div class="filter-group">
                     <label>原作</label>
-                    <input type="text" id="f-parody" list="dl-parody" placeholder="輸入篩選…">
-                    <datalist id="dl-parody"></datalist>
+                    <input type="text" id="f-parody" placeholder="輸入篩選…">
                 </div>
                 <div class="filter-group">
                     <label>社團</label>
-                    <input type="text" id="f-circle" list="dl-circle" placeholder="輸入篩選…">
-                    <datalist id="dl-circle"></datalist>
+                    <input type="text" id="f-circle" placeholder="輸入篩選…">
                 </div>
                 <div class="filter-group">
                     <label>作者</label>
-                    <input type="text" id="f-author" list="dl-author" placeholder="輸入篩選…">
-                    <datalist id="dl-author"></datalist>
+                    <input type="text" id="f-author" placeholder="輸入篩選…">
                 </div>
             </div>
             <div class="null-filter-row">
@@ -139,6 +137,19 @@
                 <span class="merge-summary" id="merge-summary"></span>
             </div>
             <div id="merge-list"></div>
+        </section>
+    </div>
+
+    <!-- 統計頁面 -->
+    <div id="page-stats" style="display:none">
+        <section class="stats-page">
+            <div class="stats-summary" id="stats-summary"></div>
+            <div class="stats-grid">
+                <div class="stat-section"><h3>原作 Top 20</h3><div id="stat-parody"></div></div>
+                <div class="stat-section"><h3>作者 Top 20</h3><div id="stat-author"></div></div>
+                <div class="stat-section"><h3>社團 Top 20</h3><div id="stat-circle"></div></div>
+                <div class="stat-section"><h3>場次 Top 30</h3><div id="stat-event"></div></div>
+            </div>
         </section>
     </div>
 
@@ -298,14 +309,27 @@ function toggleFilters() {
 }
 
 // ── 載入篩選選項 ──
+let acInstances = {};
+
 async function loadFilters() {
     const res = await fetch('/api/filters');
     const data = await res.json();
 
-    fillDatalist('dl-event', data.event);
-    fillDatalist('dl-parody', data.parody);
-    fillDatalist('dl-circle', data.circle);
-    fillDatalist('dl-author', data.author);
+    const acConfig = [
+        {id: 'f-event', data: data.event},
+        {id: 'f-parody', data: data.parody},
+        {id: 'f-circle', data: data.circle},
+        {id: 'f-author', data: data.author},
+    ];
+
+    acConfig.forEach(({id, data: items}) => {
+        if (acInstances[id]) acInstances[id].destroy();
+        const ac = new AutoComplete(document.getElementById(id), {
+            onSelect: () => { currentPage = 1; doSearch(); },
+        });
+        ac.setData(items);
+        acInstances[id] = ac;
+    });
 
     document.getElementById('null-parody-count').textContent = `(${data.parody_null_count})`;
     document.getElementById('null-event-count').textContent = `(${data.event_null_count})`;
@@ -319,16 +343,6 @@ async function loadFilters() {
         document.getElementById('src-archive-count').textContent = archiveCount ? `(${archiveCount.toLocaleString()})` : '';
         document.getElementById('src-downloads-count').textContent = dlCount ? `(${dlCount.toLocaleString()})` : '';
     }
-}
-
-function fillDatalist(id, items) {
-    const dl = document.getElementById(id);
-    items.forEach(item => {
-        const opt = document.createElement('option');
-        opt.value = item.value;
-        opt.label = `(${item.count})`;
-        dl.appendChild(opt);
-    });
 }
 
 // ── 載入 Tags ──
@@ -941,20 +955,60 @@ async function rescan() {
 
 // ── 頁面切換 ──
 function showPage(page) {
-    const searchEls = [document.querySelector('.filters'), document.getElementById('results'), document.getElementById('pagination')];
+    const searchEls = [document.querySelector('.filters'), document.getElementById('results'), document.getElementById('pagination'), document.getElementById('batch-toolbar')];
     const mergeEl = document.getElementById('page-merge');
+    const statsEl = document.getElementById('page-stats');
 
     document.getElementById('nav-search').classList.toggle('active', page === 'search');
     document.getElementById('nav-merge').classList.toggle('active', page === 'merge');
+    document.getElementById('nav-stats').classList.toggle('active', page === 'stats');
+
+    searchEls.forEach(el => el.style.display = 'none');
+    mergeEl.style.display = 'none';
+    statsEl.style.display = 'none';
 
     if (page === 'search') {
         searchEls.forEach(el => el.style.display = '');
-        mergeEl.style.display = 'none';
-    } else {
-        searchEls.forEach(el => el.style.display = 'none');
+        updateBatchToolbar();
+    } else if (page === 'merge') {
         mergeEl.style.display = '';
         loadDuplicates();
+    } else if (page === 'stats') {
+        statsEl.style.display = '';
+        loadStats();
     }
+}
+
+// ── 統計 ──
+async function loadStats() {
+    const res = await fetch('/api/stats');
+    const data = await res.json();
+
+    document.getElementById('stats-summary').innerHTML = `
+        <div class="stat-card"><div class="stat-num">${data.total.toLocaleString()}</div><div class="stat-label">總收藏</div></div>
+        <div class="stat-card"><div class="stat-num">${data.tagged.toLocaleString()}</div><div class="stat-label">已標記</div></div>
+        ${data.categories.map(c => `<div class="stat-card"><div class="stat-num">${c.count.toLocaleString()}</div><div class="stat-label">${esc(c.name)}</div></div>`).join('')}
+    `;
+
+    renderBarChart('stat-parody', data.top_parody);
+    renderBarChart('stat-author', data.top_author);
+    renderBarChart('stat-circle', data.top_circle);
+    renderBarChart('stat-event', data.top_event);
+}
+
+function renderBarChart(containerId, items) {
+    const container = document.getElementById(containerId);
+    if (!items || items.length === 0) { container.innerHTML = '<div class="no-results">無資料</div>'; return; }
+    const max = items[0].count;
+    container.innerHTML = items.map(item => `
+        <div class="stat-bar-row" onclick="filterBy('${containerId.replace('stat-', '')}', '${esc(item.name).replace(/'/g, "\\'")}')">
+            <span class="stat-bar-label" title="${esc(item.name)}">${esc(item.name)}</span>
+            <div class="stat-bar-track">
+                <div class="stat-bar-fill" style="width: ${Math.round(item.count / max * 100)}%"></div>
+            </div>
+            <span class="stat-bar-value">${item.count.toLocaleString()}</span>
+        </div>
+    `).join('');
 }
 
 // ── 合併管理 ──

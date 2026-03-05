@@ -1121,6 +1121,39 @@ header button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
     font-size: 0.75rem;
 }
 
+/* ── Autocomplete ── */
+.ac-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 200;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-md);
+    max-height: 240px;
+    overflow-y: auto;
+    margin-top: 2px;
+}
+
+.ac-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 7px 12px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: background var(--transition-fast);
+}
+.ac-item:hover, .ac-item.ac-selected {
+    background: var(--surface-hover);
+}
+
+.ac-value { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ac-value mark { background: var(--accent-subtle); color: var(--accent); border-radius: 2px; padding: 0 1px; }
+.ac-count { font-size: 0.72rem; color: var(--text-dim); margin-left: 8px; flex-shrink: 0; }
+
 /* ── Scrollbar ── */
 ::-webkit-scrollbar {
     width: 8px;
@@ -1371,6 +1404,108 @@ header button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
     padding: 60px 20px;
     color: var(--text-dim);
     font-size: 0.95rem;
+}
+
+/* ── 統計 Dashboard ── */
+.stats-page { padding: 24px 28px; }
+
+.stats-summary {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 24px;
+}
+
+.stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 16px 24px;
+    text-align: center;
+    flex: 1;
+    min-width: 120px;
+}
+
+.stat-num {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--accent);
+    line-height: 1.2;
+}
+
+.stat-label {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    margin-top: 4px;
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+    gap: 20px;
+}
+
+.stat-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 16px 20px;
+}
+
+.stat-section h3 {
+    font-size: 0.9rem;
+    font-weight: 600;
+    margin-bottom: 12px;
+    color: var(--text-secondary);
+}
+
+.stat-bar-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background var(--transition-fast);
+}
+.stat-bar-row:hover { background: var(--surface-hover); }
+
+.stat-bar-label {
+    width: 140px;
+    flex-shrink: 0;
+    font-size: 0.78rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text);
+}
+
+.stat-bar-track {
+    flex: 1;
+    height: 16px;
+    background: var(--bg);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.stat-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent) 0%, var(--badge-parody) 100%);
+    border-radius: 3px;
+    transition: width 0.4s ease;
+}
+
+.stat-bar-value {
+    width: 50px;
+    text-align: right;
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    flex-shrink: 0;
+}
+
+@media (max-width: 768px) {
+    .stats-grid { grid-template-columns: 1fr; }
+    .stat-bar-label { width: 100px; }
 }
 
 /* Header 導航 */

@@ -8,7 +8,7 @@ from flask import Flask, render_template, request, jsonify, send_file
 from models import (
     get_db, init_db, search_doujinshi, get_doujinshi,
     update_doujinshi, add_tag, remove_tag, get_all_tags, get_filter_options,
-    batch_add_tag, batch_update
+    batch_add_tag, batch_update, get_stats
 )
 from normalize import find_duplicates_for_field, merge_field_values
 from thumbs import ThumbWorker, get_thumbnail_path
@@ -249,6 +249,13 @@ def api_thumb(did):
         thumb_worker.submit(item['filepath'], did)
     # 回傳 1x1 透明 webp placeholder
     return '', 202
+
+
+@app.route('/api/stats')
+def api_stats():
+    """統計 Dashboard 資料。"""
+    from flask import g
+    return jsonify(get_stats(g.db))
 
 
 @app.route('/api/rescan', methods=['POST'])
