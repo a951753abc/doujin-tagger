@@ -7,7 +7,8 @@ from flask import Flask, render_template, request, jsonify, send_file
 
 from models import (
     get_db, init_db, search_doujinshi, get_doujinshi,
-    update_doujinshi, add_tag, remove_tag, get_all_tags, get_filter_options
+    update_doujinshi, add_tag, remove_tag, get_all_tags, get_filter_options,
+    batch_add_tag, batch_update
 )
 from normalize import find_duplicates_for_field, merge_field_values
 from thumbs import ThumbWorker, get_thumbnail_path
@@ -206,6 +207,32 @@ def api_merge():
         return jsonify({"error": "missing field, canonical, or old_values"}), 400
     count = merge_field_values(g.db, field, canonical, old_values)
     return jsonify({"ok": True, "updated": count})
+
+
+@app.route('/api/batch/tags', methods=['POST'])
+def api_batch_tags():
+    """批次加 tag。"""
+    from flask import g
+    data = request.get_json()
+    ids = data.get('ids', [])
+    name = data.get('name', '').strip()
+    if not ids or not name:
+        return jsonify({"error": "ids and name required"}), 400
+    result = batch_add_tag(g.db, ids, name)
+    return jsonify(result)
+
+
+@app.route('/api/batch/update', methods=['PUT'])
+def api_batch_update():
+    """批次更新欄位。"""
+    from flask import g
+    data = request.get_json()
+    ids = data.get('ids', [])
+    fields = data.get('fields', {})
+    if not ids or not fields:
+        return jsonify({"error": "ids and fields required"}), 400
+    result = batch_update(g.db, ids, fields)
+    return jsonify(result)
 
 
 @app.route('/api/thumb/<int:did>')

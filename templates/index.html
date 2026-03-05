@@ -97,6 +97,31 @@
         </div>
     </section>
 
+    <!-- 批次操作工具列 -->
+    <div class="batch-toolbar" id="batch-toolbar" style="display:none">
+        <span id="batch-count">已選 0 筆</span>
+        <button onclick="selectAllVisible()">全選</button>
+        <button onclick="invertSelection()">反選</button>
+        <div class="batch-action">
+            <input type="text" id="batch-tag" placeholder="批次加 Tag">
+            <button onclick="batchAddTag()" class="btn-open">加 Tag</button>
+        </div>
+        <div class="batch-action">
+            <input type="text" id="batch-parody" placeholder="批次改原作">
+            <button onclick="batchUpdateField('parody')" class="btn-open">套用</button>
+        </div>
+        <div class="batch-action">
+            <select id="batch-category">
+                <option value="">批次改分類</option>
+                <option value="同人誌">同人誌</option>
+                <option value="CG">CG</option>
+                <option value="商業誌">商業誌</option>
+            </select>
+            <button onclick="batchUpdateCategory()" class="btn-open">套用</button>
+        </div>
+        <button onclick="clearSelection()" class="btn-secondary">取消選取</button>
+    </div>
+
     <section class="results" id="results"></section>
 
     <section class="pagination" id="pagination"></section>
@@ -332,6 +357,103 @@ function getSelectedTags() {
     return [...document.querySelectorAll('#tag-filters input:checked')].map(cb => cb.value);
 }
 
+// ── 批次操作 ──
+let selectedIds = new Set();
+
+function updateBatchToolbar() {
+    const toolbar = document.getElementById('batch-toolbar');
+    if (selectedIds.size > 0) {
+        toolbar.style.display = '';
+        document.getElementById('batch-count').textContent = `已選 ${selectedIds.size} 筆`;
+    } else {
+        toolbar.style.display = 'none';
+    }
+}
+
+function toggleSelect(id, checkbox) {
+    if (checkbox.checked) selectedIds.add(id);
+    else selectedIds.delete(id);
+    const card = checkbox.closest('.card');
+    if (card) card.classList.toggle('selected', checkbox.checked);
+    updateBatchToolbar();
+}
+
+function selectAllVisible() {
+    document.querySelectorAll('#results .card-checkbox').forEach(cb => {
+        cb.checked = true;
+        const id = parseInt(cb.dataset.id);
+        selectedIds.add(id);
+        cb.closest('.card')?.classList.add('selected');
+    });
+    updateBatchToolbar();
+}
+
+function invertSelection() {
+    document.querySelectorAll('#results .card-checkbox').forEach(cb => {
+        cb.checked = !cb.checked;
+        const id = parseInt(cb.dataset.id);
+        if (cb.checked) { selectedIds.add(id); cb.closest('.card')?.classList.add('selected'); }
+        else { selectedIds.delete(id); cb.closest('.card')?.classList.remove('selected'); }
+    });
+    updateBatchToolbar();
+}
+
+function clearSelection() {
+    selectedIds.clear();
+    document.querySelectorAll('#results .card-checkbox').forEach(cb => {
+        cb.checked = false;
+        cb.closest('.card')?.classList.remove('selected');
+    });
+    updateBatchToolbar();
+}
+
+async function batchAddTag() {
+    const name = document.getElementById('batch-tag').value.trim();
+    if (!name || selectedIds.size === 0) return;
+    const res = await fetch('/api/batch/tags', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ids: [...selectedIds], name})
+    });
+    const data = await res.json();
+    showToast(`已為 ${data.added} 筆加上 Tag: ${name}`);
+    document.getElementById('batch-tag').value = '';
+    clearSelection();
+    await Promise.all([loadTags(), doSearch()]);
+}
+
+async function batchUpdateField(field) {
+    const input = document.getElementById(`batch-${field}`);
+    const value = input.value.trim();
+    if (!value || selectedIds.size === 0) return;
+    const res = await fetch('/api/batch/update', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ids: [...selectedIds], fields: {[field]: value}})
+    });
+    const data = await res.json();
+    showToast(`已更新 ${data.updated} 筆的${field}`);
+    input.value = '';
+    clearSelection();
+    doSearch();
+}
+
+async function batchUpdateCategory() {
+    const sel = document.getElementById('batch-category');
+    const value = sel.value;
+    if (!value || selectedIds.size === 0) return;
+    const res = await fetch('/api/batch/update', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ids: [...selectedIds], fields: {category: value}})
+    });
+    const data = await res.json();
+    showToast(`已更新 ${data.updated} 筆的分類為 ${value}`);
+    sel.value = '';
+    clearSelection();
+    doSearch();
+}
+
 // ── 檢視模式 ──
 function setViewMode(mode) {
     viewMode = mode;
@@ -519,9 +641,15 @@ function renderResults(items) {
     const thumbHtml = item =>
         `<img src="/api/thumb/${item.id}" class="thumb-img" loading="lazy" alt="" onerror="this.classList.add('thumb-error')">`;
 
+    const checkboxHtml = item => {
+        const checked = selectedIds.has(item.id) ? 'checked' : '';
+        return `<input type="checkbox" class="card-checkbox" data-id="${item.id}" ${checked} onclick="toggleSelect(${item.id}, this)">`;
+    };
+
     if (viewMode === 'grid') {
         container.innerHTML = items.map(item => `
-            <div class="card grid-card" data-id="${item.id}" tabindex="0">
+            <div class="card grid-card${selectedIds.has(item.id) ? ' selected' : ''}" data-id="${item.id}" tabindex="0">
+                ${checkboxHtml(item)}
                 <div class="grid-thumb">${thumbHtml(item)}</div>
                 <div class="grid-info">
                     <div class="card-title">${esc(item.title || item.filename)}</div>
@@ -532,7 +660,8 @@ function renderResults(items) {
         `).join('');
     } else {
         container.innerHTML = items.map(item => `
-            <div class="card list-card" data-id="${item.id}" tabindex="0">
+            <div class="card list-card${selectedIds.has(item.id) ? ' selected' : ''}" data-id="${item.id}" tabindex="0">
+                ${checkboxHtml(item)}
                 <div class="list-thumb">${thumbHtml(item)}</div>
                 <div class="list-info">
                     <div class="card-title">${esc(item.title || item.filename)}</div>

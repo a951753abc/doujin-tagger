@@ -351,3 +351,43 @@ def get_filter_options(conn):
     ).fetchall()
     result['sources'] = {r[0]: r[1] for r in source_rows}
     return result
+
+
+def batch_add_tag(conn, doujinshi_ids: list, tag_name: str) -> dict:
+    """對多筆同人誌加上同一個 tag。"""
+    tag_name = tag_name.strip()
+    if not tag_name or not doujinshi_ids:
+        return {"added": 0}
+    row = conn.execute("SELECT id FROM tags WHERE name = ?", (tag_name,)).fetchone()
+    if row:
+        tag_id = row[0]
+    else:
+        cur = conn.execute("INSERT INTO tags (name) VALUES (?)", (tag_name,))
+        tag_id = cur.lastrowid
+    added = 0
+    for did in doujinshi_ids:
+        try:
+            conn.execute("INSERT INTO doujinshi_tags (doujinshi_id, tag_id) VALUES (?, ?)",
+                         (did, tag_id))
+            added += 1
+        except sqlite3.IntegrityError:
+            pass
+    conn.commit()
+    return {"added": added}
+
+
+def batch_update(conn, doujinshi_ids: list, fields: dict) -> dict:
+    """對多筆同人誌更新相同欄位。"""
+    allowed = {'event', 'circle', 'author', 'title', 'parody', 'category'}
+    updates = {k: v for k, v in fields.items() if k in allowed}
+    if not updates or not doujinshi_ids:
+        return {"updated": 0}
+    set_clause = ", ".join(f"{k} = ?" for k in updates)
+    placeholders = ",".join("?" * len(doujinshi_ids))
+    params = list(updates.values()) + doujinshi_ids
+    cur = conn.execute(
+        f"UPDATE doujinshi SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE id IN ({placeholders})",
+        params
+    )
+    conn.commit()
+    return {"updated": cur.rowcount}
