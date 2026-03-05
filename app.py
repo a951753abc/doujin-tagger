@@ -5,7 +5,7 @@ import json
 import os
 import subprocess
 from pathlib import Path
-from flask import Flask, render_template, request, jsonify, send_file, make_response
+from flask import Flask, render_template, request, jsonify, send_file, make_response, g
 
 from PIL import Image as _PILImage
 
@@ -26,6 +26,13 @@ _ph = io.BytesIO()
 _PILImage.new('RGBA', (1, 1), (0, 0, 0, 0)).save(_ph, 'WEBP')
 PLACEHOLDER_WEBP = _ph.getvalue()
 
+
+def _is_path_under(filepath: str, allowed_roots: list[str]) -> bool:
+    """安全的路徑包含檢查（避免 startswith 前綴誤判）。"""
+    norm = Path(filepath).resolve()
+    return any(norm.is_relative_to(Path(r).resolve()) for r in allowed_roots)
+
+
 def _get_allowed_roots(db=None):
     """從 DB settings 動態取得允許的根目錄。"""
     from scan import get_scan_roots
@@ -34,16 +41,33 @@ def _get_allowed_roots(db=None):
     return [str(r["path"]) for r in roots]
 
 
+def _get_validated_item(did):
+    """取得 doujinshi 並驗證路徑合法性。回傳 (item, filepath) 或 (None, error_response)。"""
+    item = get_doujinshi(g.db, did)
+    if not item:
+        return None, (jsonify({"error": "not found"}), 404)
+
+    filepath = item['filepath']
+    allowed = _get_allowed_roots(g.db)
+    if not _is_path_under(filepath, allowed):
+        return None, (jsonify({"error": "invalid path"}), 403)
+
+    return item, filepath
+
+
 @app.before_request
 def before_request():
-    """每個 request 建立 DB 連線。"""
-    from flask import g
+    """每個 request 建立 DB 連線 + CSRF 檢查。"""
+    # CSRF: 寫入操作檢查 Origin / Referer
+    if request.method in ('POST', 'PUT', 'DELETE'):
+        origin = request.headers.get('Origin') or request.headers.get('Referer', '')
+        if origin and not any(h in origin for h in ('localhost', '127.0.0.1')):
+            return jsonify({"error": "CSRF check failed"}), 403
     g.db = get_db()
 
 
 @app.teardown_appcontext
 def close_db(error):
-    from flask import g
     db = g.pop('db', None)
     if db:
         db.close()
@@ -60,15 +84,17 @@ def index():
 
 @app.route('/api/search')
 def api_search():
-    from flask import g
     query = request.args.get('q', '')
     event = request.args.get('event', '')
     circle = request.args.get('circle', '')
     author = request.args.get('author', '')
     parody = request.args.get('parody', '')
     tags = request.args.getlist('tags')
-    page = int(request.args.get('page', 1))
-    per_page = int(request.args.get('per_page', 50))
+    try:
+        page = max(1, int(request.args.get('page', 1)))
+        per_page = min(200, max(1, int(request.args.get('per_page', 50))))
+    except (ValueError, TypeError):
+        page, per_page = 1, 50
     sort = request.args.get('sort', 'event')
     order = request.args.get('order', 'desc')
     category = request.args.get('category', '')
@@ -83,13 +109,11 @@ def api_search():
 
 @app.route('/api/filters')
 def api_filters():
-    from flask import g
     return jsonify(get_filter_options(g.db))
 
 
 @app.route('/api/doujinshi/<int:did>')
 def api_get(did):
-    from flask import g
     item = get_doujinshi(g.db, did)
     if not item:
         return jsonify({"error": "not found"}), 404
@@ -98,16 +122,14 @@ def api_get(did):
 
 @app.route('/api/doujinshi/<int:did>', methods=['PUT'])
 def api_update(did):
-    from flask import g
-    fields = request.get_json()
+    fields = request.get_json() or {}
     update_doujinshi(g.db, did, fields)
     return jsonify(get_doujinshi(g.db, did))
 
 
 @app.route('/api/doujinshi/<int:did>/tags', methods=['POST'])
 def api_add_tag(did):
-    from flask import g
-    data = request.get_json()
+    data = request.get_json() or {}
     tag_name = data.get('name', '').strip()
     if not tag_name:
         return jsonify({"error": "tag name required"}), 400
@@ -117,30 +139,20 @@ def api_add_tag(did):
 
 @app.route('/api/doujinshi/<int:did>/tags/<int:tid>', methods=['DELETE'])
 def api_remove_tag(did, tid):
-    from flask import g
     remove_tag(g.db, did, tid)
     return jsonify({"ok": True})
 
 
 @app.route('/api/tags')
 def api_tags():
-    from flask import g
     return jsonify(get_all_tags(g.db))
 
 
 @app.route('/open/<int:did>')
 def open_file(did):
-    from flask import g
-    item = get_doujinshi(g.db, did)
-    if not item:
-        return jsonify({"error": "not found"}), 404
-
-    filepath = item['filepath']
-    # 安全檢查：路徑必須在允許的根目錄下
-    allowed = _get_allowed_roots(g.db)
-    norm_path = os.path.normpath(filepath)
-    if not any(norm_path.startswith(os.path.normpath(r)) for r in allowed):
-        return jsonify({"error": "invalid path"}), 403
+    item, filepath = _get_validated_item(did)
+    if item is None:
+        return filepath  # filepath is error response
 
     if not os.path.exists(filepath):
         return jsonify({"error": "file not found"}), 404
@@ -152,26 +164,19 @@ def open_file(did):
 @app.route('/api/doujinshi/<int:did>', methods=['DELETE'])
 def api_delete(did):
     """刪除 zip 檔案及 DB 紀錄。僅限 .zip 檔案。"""
-    from flask import g
-    item = get_doujinshi(g.db, did)
-    if not item:
-        return jsonify({"error": "not found"}), 404
-
-    filepath = item['filepath']
+    item, filepath = _get_validated_item(did)
+    if item is None:
+        return filepath  # filepath is error response
 
     # 僅限 zip 檔
     if not filepath.lower().endswith('.zip'):
         return jsonify({"error": "僅限刪除 ZIP 檔案"}), 403
 
-    # 安全檢查：路徑必須在允許的根目錄下
-    allowed = _get_allowed_roots(g.db)
-    norm_path = os.path.normpath(filepath)
-    if not any(norm_path.startswith(os.path.normpath(r)) for r in allowed):
-        return jsonify({"error": "invalid path"}), 403
-
-    # 刪除實體檔案
-    if os.path.exists(filepath):
+    # 刪除實體檔案（直接操作，避免 TOCTOU）
+    try:
         os.remove(filepath)
+    except FileNotFoundError:
+        pass
 
     # 刪除 DB 紀錄（含關聯 tags）
     from models import delete_doujinshi
@@ -183,7 +188,6 @@ def api_delete(did):
 @app.route('/api/doujinshi/<int:did>/web-search', methods=['POST'])
 def api_web_search(did):
     """觸發 Web 搜尋建議，回傳建議列表（不自動寫入）。"""
-    from flask import g
     from web_enrich import enrich_item
     result = enrich_item(g.db, did)
     if "error" in result:
@@ -194,9 +198,8 @@ def api_web_search(did):
 @app.route('/api/doujinshi/<int:did>/apply-suggestion', methods=['POST'])
 def api_apply_suggestion(did):
     """使用者確認後寫入選定的建議。"""
-    from flask import g
     from web_enrich import apply_suggestion
-    suggestion = request.get_json()
+    suggestion = request.get_json() or {}
     result = apply_suggestion(g.db, did, suggestion)
     if "error" in result:
         return jsonify(result), 404
@@ -206,7 +209,6 @@ def api_apply_suggestion(did):
 @app.route('/api/duplicates')
 def api_duplicates():
     """偵測指定欄位的重複值。"""
-    from flask import g
     field = request.args.get('field', 'parody')
     dupes = find_duplicates_for_field(g.db, field)
     return jsonify(dupes)
@@ -215,8 +217,7 @@ def api_duplicates():
 @app.route('/api/merge', methods=['POST'])
 def api_merge():
     """合併重複值。"""
-    from flask import g
-    data = request.get_json()
+    data = request.get_json() or {}
     field = data.get('field', '')
     canonical = data.get('canonical', '')
     old_values = data.get('old_values', [])
@@ -229,8 +230,7 @@ def api_merge():
 @app.route('/api/batch/tags', methods=['POST'])
 def api_batch_tags():
     """批次加 tag。"""
-    from flask import g
-    data = request.get_json()
+    data = request.get_json() or {}
     ids = data.get('ids', [])
     name = data.get('name', '').strip()
     if not ids or not name:
@@ -242,8 +242,7 @@ def api_batch_tags():
 @app.route('/api/batch/update', methods=['PUT'])
 def api_batch_update():
     """批次更新欄位。"""
-    from flask import g
-    data = request.get_json()
+    data = request.get_json() or {}
     ids = data.get('ids', [])
     fields = data.get('fields', {})
     if not ids or not fields:
@@ -255,7 +254,6 @@ def api_batch_update():
 @app.route('/api/thumb/<int:did>')
 def api_thumb(did):
     """回傳縮圖。若尚未生成，提交背景任務並回傳 placeholder。"""
-    from flask import g
     thumb = get_thumbnail_path(did)
     if thumb:
         return send_file(thumb, mimetype='image/webp',
@@ -274,23 +272,16 @@ def api_thumb(did):
 @app.route('/read/<int:did>')
 def read_file(did):
     """用設定的閱讀器（Honeyview）開啟檔案。"""
-    from flask import g
-    item = get_doujinshi(g.db, did)
-    if not item:
-        return jsonify({"error": "not found"}), 404
-
-    filepath = item['filepath']
-    allowed = _get_allowed_roots(g.db)
-    norm_path = os.path.normpath(filepath)
-    if not any(norm_path.startswith(os.path.normpath(r)) for r in allowed):
-        return jsonify({"error": "invalid path"}), 403
+    item, filepath = _get_validated_item(did)
+    if item is None:
+        return filepath  # filepath is error response
 
     if not os.path.exists(filepath):
         return jsonify({"error": "file not found"}), 404
 
     viewer = get_setting(g.db, 'viewer_path', config.default_viewer())
     if not os.path.exists(viewer):
-        return jsonify({"error": f"閱讀器不存在: {viewer}"}), 404
+        return jsonify({"error": "閱讀器不存在"}), 404
 
     subprocess.Popen([viewer, filepath])
     return jsonify({"ok": True})
@@ -298,7 +289,6 @@ def read_file(did):
 
 @app.route('/api/settings', methods=['GET'])
 def api_get_settings():
-    from flask import g
     settings = get_all_settings(g.db)
     if 'viewer_path' not in settings:
         settings['viewer_path'] = config.default_viewer()
@@ -309,8 +299,7 @@ def api_get_settings():
 
 @app.route('/api/settings', methods=['PUT'])
 def api_update_settings():
-    from flask import g
-    data = request.get_json()
+    data = request.get_json() or {}
     allowed_keys = {'viewer_path', 'scan_roots'}
     for key, value in data.items():
         if key in allowed_keys:
@@ -324,7 +313,6 @@ def api_update_settings():
 @app.route('/api/stats')
 def api_stats():
     """統計 Dashboard 資料。"""
-    from flask import g
     return jsonify(get_stats(g.db))
 
 

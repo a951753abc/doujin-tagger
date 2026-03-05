@@ -465,7 +465,7 @@ function renderBrowseList() {
     const maxCount = sorted[0].count;
     list.innerHTML = sorted.map(item => {
         const pct = maxCount > 0 ? (item.count / maxCount * 100) : 0;
-        return `<div class="browse-item" onclick="applyBrowseFilter('${currentBrowseTab}',${JSON.stringify(item.value)})">
+        return `<div class="browse-item" data-field="${currentBrowseTab}" data-value="${escAttr(item.value)}" onclick="applyBrowseFilter(this.dataset.field, this.dataset.value)">
             <div class="browse-bar" style="width:${pct}%"></div>
             <span class="browse-label">${esc(item.value)}</span>
             <span class="browse-count">${item.count}</span>
@@ -750,10 +750,10 @@ function renderResults(items) {
     }
 
     const badgesHtml = item => `
-        ${item.event ? `<span class="meta-badge event clickable" data-filter-field="event" data-filter-value="${esc(item.event)}" title="篩選場次: ${esc(item.event)}">${esc(item.event)}</span>` : ''}
-        ${item.circle ? `<span class="meta-badge circle clickable" data-filter-field="circle" data-filter-value="${esc(item.circle)}" title="篩選社團: ${esc(item.circle)}">${esc(item.circle)}</span>` : ''}
-        ${item.author ? `<span class="meta-badge author clickable" data-filter-field="author" data-filter-value="${esc(item.author)}" title="篩選作者: ${esc(item.author)}">${esc(item.author)}</span>` : ''}
-        ${item.parody ? `<span class="meta-badge parody clickable" data-filter-field="parody" data-filter-value="${esc(item.parody)}" title="篩選原作: ${esc(item.parody)}">${esc(item.parody)}</span>` : ''}
+        ${item.event ? `<span class="meta-badge event clickable" data-filter-field="event" data-filter-value="${escAttr(item.event)}" title="篩選場次: ${escAttr(item.event)}">${esc(item.event)}</span>` : ''}
+        ${item.circle ? `<span class="meta-badge circle clickable" data-filter-field="circle" data-filter-value="${escAttr(item.circle)}" title="篩選社團: ${escAttr(item.circle)}">${esc(item.circle)}</span>` : ''}
+        ${item.author ? `<span class="meta-badge author clickable" data-filter-field="author" data-filter-value="${escAttr(item.author)}" title="篩選作者: ${escAttr(item.author)}">${esc(item.author)}</span>` : ''}
+        ${item.parody ? `<span class="meta-badge parody clickable" data-filter-field="parody" data-filter-value="${escAttr(item.parody)}" title="篩選原作: ${escAttr(item.parody)}">${esc(item.parody)}</span>` : ''}
         ${item.is_dl ? '<span class="meta-badge dl">DL版</span>' : ''}
         ${item.category && item.category !== '同人誌' ? `<span class="meta-badge cat-${item.category === 'CG' ? 'cg' : 'commercial'}">${esc(item.category)}</span>` : ''}
         ${item.source === 'downloads' ? '<span class="meta-badge source-dl">下載區</span>' : ''}`;
@@ -768,10 +768,10 @@ function renderResults(items) {
         </span>`;
 
     const actionsHtml = item => `
-        <button onclick="readFile(${item.id}, '${esc(item.title || item.filename).replace(/'/g, "\\'")}')" class="btn-read">閱讀</button>
+        <button onclick="readFile(${item.id}, this.dataset.title)" data-title="${escAttr(item.title || item.filename)}" class="btn-read">閱讀</button>
         <button onclick="openFile(${item.id})" class="btn-secondary">開啟</button>
         <button onclick="showEditModal(${item.id})" class="btn-secondary">編輯</button>
-        ${item.filepath && item.filepath.toLowerCase().endsWith('.zip') ? `<button onclick="deleteFile(${item.id}, '${esc(item.filename).replace(/'/g, "\\'")}')" class="btn-delete">刪除</button>` : ''}`;
+        ${item.filepath && item.filepath.toLowerCase().endsWith('.zip') ? `<button onclick="deleteFile(${item.id}, this.dataset.fname)" data-fname="${escAttr(item.filename)}" class="btn-delete">刪除</button>` : ''}`;
 
     /* ── 縮圖輪詢機制 ── */
     let _thumbPollTimer = null;
@@ -844,6 +844,10 @@ function esc(s) {
     const div = document.createElement('div');
     div.textContent = s;
     return div.innerHTML;
+}
+
+function escAttr(s) {
+    return esc(s).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 // ── 分頁 ──
@@ -1120,7 +1124,7 @@ function toggleRecent() {
         } else {
             list.innerHTML = recent.map(r => {
                 const ago = timeAgo(r.time);
-                return `<div class="recent-item" onclick="readFile(${r.id}, '${esc(r.title).replace(/'/g, "\\'")}'); document.getElementById('recent-list').style.display='none'">
+                return `<div class="recent-item" data-id="${r.id}" data-title="${escAttr(r.title)}" onclick="readFile(+this.dataset.id, this.dataset.title); document.getElementById('recent-list').style.display='none'">
                     <span class="recent-title">${esc(r.title)}</span>
                     <span class="recent-time">${ago}</span>
                 </div>`;
@@ -1285,8 +1289,8 @@ function renderBarChart(containerId, items) {
     if (!items || items.length === 0) { container.innerHTML = '<div class="no-results">無資料</div>'; return; }
     const max = items[0].count;
     container.innerHTML = items.map(item => `
-        <div class="stat-bar-row" onclick="filterBy('${containerId.replace('stat-', '')}', '${esc(item.name).replace(/'/g, "\\'")}')">
-            <span class="stat-bar-label" title="${esc(item.name)}">${esc(item.name)}</span>
+        <div class="stat-bar-row" data-field="${containerId.replace('stat-', '')}" data-value="${escAttr(item.name)}" onclick="filterBy(this.dataset.field, this.dataset.value)">
+            <span class="stat-bar-label" title="${escAttr(item.name)}">${esc(item.name)}</span>
             <div class="stat-bar-track">
                 <div class="stat-bar-fill" style="width: ${Math.round(item.count / max * 100)}%"></div>
             </div>
@@ -1329,7 +1333,7 @@ function renderDuplicateGroups(container) {
             const nameClass = v.is_japanese ? 'merge-variant-name is-jp' : 'merge-variant-name';
             return `
                 <label class="merge-variant">
-                    <input type="radio" name="merge-${gi}" value="${esc(v.value)}"
+                    <input type="radio" name="merge-${gi}" value="${escAttr(v.value)}"
                            ${checked} onchange="updateCanonicalInput(${gi}, this.value)">
                     <span class="${nameClass}">${esc(v.value)}</span>
                     ${jpBadge}
@@ -1347,7 +1351,7 @@ function renderDuplicateGroups(container) {
                 ${variantsHtml}
                 <div class="merge-group-actions">
                     <input type="text" class="merge-canonical-input" id="canonical-${gi}"
-                           value="${esc(group.canonical)}" placeholder="合併後的名稱">
+                           value="${escAttr(group.canonical)}" placeholder="合併後的名稱">
                     <button class="btn-merge" onclick="doMerge(${gi})">合併</button>
                     <button class="btn-skip" onclick="skipGroup(${gi})">跳過</button>
                 </div>
@@ -1393,7 +1397,7 @@ async function doMerge(groupIndex) {
             document.getElementById('merge-summary').textContent = `${duplicateGroups.length} 組重複`;
         } else {
             const el = document.getElementById(`merge-group-${groupIndex}`);
-            el.insertAdjacentHTML('beforeend', `<div class="merge-status error">合併失敗: ${data.error}</div>`);
+            el.insertAdjacentHTML('beforeend', `<div class="merge-status error">合併失敗: ${esc(data.error)}</div>`);
             btn.disabled = false;
             btn.textContent = '合併';
         }
