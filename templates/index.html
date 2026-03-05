@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>同人誌搜尋系統</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header>
+        <h1>同人誌搜尋系統</h1>
+        <div class="header-nav">
+            <button id="nav-search" class="active" onclick="showPage('search')">搜尋</button>
+            <button id="nav-merge" onclick="showPage('merge')">合併管理</button>
+            <button id="btn-rescan" onclick="rescan()">重新掃描</button>
+        </div>
+    </header>
+
+    <section class="filters">
+        <div class="search-row">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                <path fill-rule="evenodd" d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z" clip-rule="evenodd"/>
+            </svg>
+            <input type="text" id="q" placeholder="關鍵字搜尋（標題、作者、社團、原作…）" autocomplete="off">
+        </div>
+        <button class="filter-toggle" id="filter-toggle" aria-expanded="true" onclick="toggleFilters()">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/>
+            </svg>
+            進階篩選
+        </button>
+        <div class="category-tabs" id="category-tabs">
+            <button class="cat-tab active" data-cat="" onclick="selectCategory(this)">全部</button>
+            <button class="cat-tab" data-cat="同人誌" onclick="selectCategory(this)">同人誌</button>
+            <button class="cat-tab" data-cat="CG" onclick="selectCategory(this)">CG</button>
+            <button class="cat-tab" data-cat="商業誌" onclick="selectCategory(this)">商業誌</button>
+        </div>
+        <div class="source-tabs" id="source-tabs">
+            <button class="src-tab active" data-src="" onclick="selectSource(this)">全部來源</button>
+            <button class="src-tab" data-src="archive" onclick="selectSource(this)">歸檔區 <span id="src-archive-count" class="tab-count"></span></button>
+            <button class="src-tab" data-src="downloads" onclick="selectSource(this)">下載區 <span id="src-downloads-count" class="tab-count"></span></button>
+        </div>
+        <div class="advanced-filters expanded" id="advanced-filters">
+            <div class="filter-row">
+                <div class="filter-group">
+                    <label>場次</label>
+                    <input type="text" id="f-event" list="dl-event" placeholder="輸入篩選…">
+                    <datalist id="dl-event"></datalist>
+                </div>
+                <div class="filter-group">
+                    <label>原作</label>
+                    <input type="text" id="f-parody" list="dl-parody" placeholder="輸入篩選…">
+                    <datalist id="dl-parody"></datalist>
+                </div>
+                <div class="filter-group">
+                    <label>社團</label>
+                    <input type="text" id="f-circle" list="dl-circle" placeholder="輸入篩選…">
+                    <datalist id="dl-circle"></datalist>
+                </div>
+                <div class="filter-group">
+                    <label>作者</label>
+                    <input type="text" id="f-author" list="dl-author" placeholder="輸入篩選…">
+                    <datalist id="dl-author"></datalist>
+                </div>
+            </div>
+            <div class="null-filter-row">
+                <label class="null-checkbox"><input type="checkbox" id="null-parody" onchange="debounceSearch()"> 原作未分類 <span id="null-parody-count"></span></label>
+                <label class="null-checkbox"><input type="checkbox" id="null-event" onchange="debounceSearch()"> 場次未分類 <span id="null-event-count"></span></label>
+                <label class="null-checkbox"><input type="checkbox" id="null-circle" onchange="debounceSearch()"> 社團未分類 <span id="null-circle-count"></span></label>
+                <label class="null-checkbox"><input type="checkbox" id="null-author" onchange="debounceSearch()"> 作者未分類 <span id="null-author-count"></span></label>
+            </div>
+            <div class="tag-filter-row" id="tag-filters"></div>
+        </div>
+        <div class="action-row">
+            <span id="result-count"></span>
+            <div class="sort-controls">
+                <select id="sort-field" onchange="currentPage=1;doSearch()">
+                    <option value="event">場次</option>
+                    <option value="title">標題</option>
+                    <option value="circle">社團</option>
+                    <option value="author">作者</option>
+                    <option value="parody">原作</option>
+                    <option value="created_at">入庫時間</option>
+                </select>
+                <button id="sort-order" class="btn-sort-order" onclick="toggleSortOrder()" title="切換排序方向">↓</button>
+            </div>
+            <button onclick="clearFilters()">清除篩選</button>
+        </div>
+    </section>
+
+    <section class="results" id="results"></section>
+
+    <section class="pagination" id="pagination"></section>
+
+    <!-- 合併管理頁面 -->
+    <div id="page-merge" style="display:none">
+        <section class="merge-page">
+            <div class="merge-controls">
+                <select id="merge-field" onchange="loadDuplicates()">
+                    <option value="parody">原作 (parody)</option>
+                    <option value="author">作者 (author)</option>
+                    <option value="circle">社團 (circle)</option>
+                    <option value="event">場次 (event)</option>
+                </select>
+                <span class="merge-summary" id="merge-summary"></span>
+            </div>
+            <div id="merge-list"></div>
+        </section>
+    </div>
+
+    <!-- 編輯 modal -->
+    <div class="modal-overlay" id="edit-modal" style="display:none" onmousedown="if(event.target===this)this._shouldClose=true" onmouseup="if(event.target===this&&this._shouldClose)closeEditModal();this._shouldClose=false">
+        <div class="modal">
+            <h3>編輯 Metadata</h3>
+            <input type="hidden" id="edit-id">
+            <label>場次 <input type="text" id="edit-event"></label>
+            <label>社團 <input type="text" id="edit-circle"></label>
+            <label>作者 <input type="text" id="edit-author"></label>
+            <label>標題 <input type="text" id="edit-title"></label>
+            <label>原作 <input type="text" id="edit-parody"></label>
+            <label>分類
+                <select id="edit-category">
+                    <option value="同人誌">同人誌</option>
+                    <option value="CG">CG</option>
+                    <option value="商業誌">商業誌</option>
+                </select>
+            </label>
+            <div class="web-search-section">
+                <button onclick="webSearchSuggestions()" id="btn-web-search" class="btn-web-search">Web 搜尋建議</button>
+                <div id="web-search-results" class="web-search-results" style="display:none"></div>
+            </div>
+            <div class="modal-actions">
+                <button onclick="saveEdit()">儲存</button>
+                <button onclick="closeEditModal()" class="btn-secondary">取消</button>
+            </div>
+        </div>
+    </div>
+
+<script>
+let currentPage = 1;
+let debounceTimer = null;
+let allTags = [];
+let sortOrder = 'desc';
+
+// ── 初始化 ──
+async function init() {
+    await Promise.all([loadFilters(), loadTags()]);
+    doSearch();
+
+    document.getElementById('q').addEventListener('input', debounceSearch);
+    document.getElementById('f-event').addEventListener('change', () => { currentPage = 1; doSearch(); });
+    document.getElementById('f-event').addEventListener('input', debounceSearch);
+    document.getElementById('f-parody').addEventListener('change', () => { currentPage = 1; doSearch(); });
+    document.getElementById('f-circle').addEventListener('change', () => { currentPage = 1; doSearch(); });
+    document.getElementById('f-author').addEventListener('change', () => { currentPage = 1; doSearch(); });
+}
+
+function debounceSearch() {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => { currentPage = 1; doSearch(); }, 300);
+}
+
+// ── 分類篩選 ──
+function selectCategory(btn) {
+    document.querySelectorAll('.cat-tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentPage = 1;
+    doSearch();
+}
+
+function getSelectedCategory() {
+    const active = document.querySelector('.cat-tab.active');
+    return active ? active.dataset.cat : '';
+}
+
+// ── 來源篩選 ──
+function selectSource(btn) {
+    document.querySelectorAll('.src-tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentPage = 1;
+    doSearch();
+}
+
+function getSelectedSource() {
+    const active = document.querySelector('.src-tab.active');
+    return active ? active.dataset.src : '';
+}
+
+// ── 排序 ──
+function toggleSortOrder() {
+    sortOrder = sortOrder === 'desc' ? 'asc' : 'desc';
+    document.getElementById('sort-order').textContent = sortOrder === 'desc' ? '↓' : '↑';
+    currentPage = 1;
+    doSearch();
+}
+
+// ── 進階篩選收合 ──
+function toggleFilters() {
+    const btn = document.getElementById('filter-toggle');
+    const panel = document.getElementById('advanced-filters');
+    const expanded = btn.getAttribute('aria-expanded') === 'true';
+    btn.setAttribute('aria-expanded', String(!expanded));
+    panel.classList.toggle('collapsed', expanded);
+    panel.classList.toggle('expanded', !expanded);
+}
+
+// ── 載入篩選選項 ──
+async function loadFilters() {
+    const res = await fetch('/api/filters');
+    const data = await res.json();
+
+    fillDatalist('dl-event', data.event);
+    fillDatalist('dl-parody', data.parody);
+    fillDatalist('dl-circle', data.circle);
+    fillDatalist('dl-author', data.author);
+
+    document.getElementById('null-parody-count').textContent = `(${data.parody_null_count})`;
+    document.getElementById('null-event-count').textContent = `(${data.event_null_count})`;
+    document.getElementById('null-circle-count').textContent = `(${data.circle_null_count})`;
+    document.getElementById('null-author-count').textContent = `(${data.author_null_count})`;
+
+    // 來源統計
+    if (data.sources) {
+        const archiveCount = data.sources.archive || 0;
+        const dlCount = data.sources.downloads || 0;
+        document.getElementById('src-archive-count').textContent = archiveCount ? `(${archiveCount.toLocaleString()})` : '';
+        document.getElementById('src-downloads-count').textContent = dlCount ? `(${dlCount.toLocaleString()})` : '';
+    }
+}
+
+function fillDatalist(id, items) {
+    const dl = document.getElementById(id);
+    items.forEach(item => {
+        const opt = document.createElement('option');
+        opt.value = item.value;
+        opt.label = `(${item.count})`;
+        dl.appendChild(opt);
+    });
+}
+
+// ── 載入 Tags ──
+async function loadTags() {
+    const res = await fetch('/api/tags');
+    allTags = await res.json();
+    renderTagFilters();
+}
+
+function renderTagFilters() {
+    const container = document.getElementById('tag-filters');
+    if (allTags.length === 0) {
+        container.innerHTML = '';
+        return;
+    }
+    container.innerHTML = '<span class="tag-filter-label">Tags:</span>' +
+        allTags.map(t =>
+            `<label class="tag-chip-filter">
+                <input type="checkbox" value="${t.name}" onchange="debounceSearch()">
+                ${t.name} <span class="tag-count">(${t.count})</span>
+            </label>`
+        ).join('');
+}
+
+function getSelectedTags() {
+    return [...document.querySelectorAll('#tag-filters input:checked')].map(cb => cb.value);
+}
+
+// ── 搜尋 ──
+async function doSearch() {
+    const params = new URLSearchParams();
+    const q = document.getElementById('q').value.trim();
+    if (q) params.set('q', q);
+
+    const event = document.getElementById('null-event').checked ? '__null__' : document.getElementById('f-event').value.trim();
+    if (event) params.set('event', event);
+
+    const parody = document.getElementById('null-parody').checked ? '__null__' : document.getElementById('f-parody').value.trim();
+    if (parody) params.set('parody', parody);
+
+    const circle = document.getElementById('null-circle').checked ? '__null__' : document.getElementById('f-circle').value.trim();
+    if (circle) params.set('circle', circle);
+
+    const author = document.getElementById('null-author').checked ? '__null__' : document.getElementById('f-author').value.trim();
+    if (author) params.set('author', author);
+
+    getSelectedTags().forEach(t => params.append('tags', t));
+
+    params.set('page', currentPage);
+    params.set('per_page', 50);
+    params.set('sort', document.getElementById('sort-field').value);
+    params.set('order', sortOrder);
+    const cat = getSelectedCategory();
+    if (cat) params.set('category', cat);
+    const src = getSelectedSource();
+    if (src) params.set('source', src);
+
+    // 顯示骨架屏
+    showSkeleton();
+
+    const res = await fetch('/api/search?' + params);
+    const data = await res.json();
+
+    document.getElementById('result-count').textContent = `找到 ${data.total.toLocaleString()} 筆結果`;
+    renderResults(data.results);
+    renderPagination(data.total, data.page, data.per_page);
+}
+
+// ── 骨架屏 ──
+function showSkeleton() {
+    const container = document.getElementById('results');
+    container.innerHTML = Array.from({length: 6}, () => `
+        <div class="skeleton-card">
+            <div class="skeleton-line title"></div>
+            <div class="skeleton-line meta"></div>
+            <div class="skeleton-line short"></div>
+        </div>
+    `).join('');
+}
+
+// ── 渲染結果 ──
+function renderResults(items) {
+    const container = document.getElementById('results');
+    if (items.length === 0) {
+        container.innerHTML = '<div class="no-results">沒有找到符合條件的結果</div>';
+        return;
+    }
+    container.innerHTML = items.map(item => `
+        <div class="card" data-id="${item.id}">
+            <div class="card-title">${esc(item.title || item.filename)}</div>
+            <div class="card-meta">
+                ${item.event ? `<span class="meta-badge event" title="場次">${esc(item.event)}</span>` : ''}
+                ${item.circle ? `<span class="meta-badge circle" title="社團">${esc(item.circle)}</span>` : ''}
+                ${item.author ? `<span class="meta-badge author" title="作者">${esc(item.author)}</span>` : ''}
+                ${item.parody ? `<span class="meta-badge parody" title="原作">${esc(item.parody)}</span>` : ''}
+                ${item.is_dl ? '<span class="meta-badge dl">DL版</span>' : ''}
+                ${item.category && item.category !== '同人誌' ? `<span class="meta-badge cat-${item.category === 'CG' ? 'cg' : 'commercial'}">${esc(item.category)}</span>` : ''}
+                ${item.source === 'downloads' ? '<span class="meta-badge source-dl">下載區</span>' : ''}
+            </div>
+            <div class="card-tags" id="tags-${item.id}">
+                ${item.tags.map(t => `<span class="tag-chip">${esc(t.name)} <button onclick="removeTag(${item.id},${t.id})" title="移除 tag">&times;</button></span>`).join('')}
+                <button class="btn-add-tag" onclick="showAddTag(${item.id})">+ tag</button>
+                <span class="add-tag-input" id="add-tag-${item.id}" style="display:none">
+                    <input type="text" list="dl-all-tags" placeholder="tag 名稱"
+                           onkeydown="if(event.key==='Enter')confirmAddTag(${item.id})">
+                    <button onclick="confirmAddTag(${item.id})">OK</button>
+                </span>
+            </div>
+            <div class="card-actions">
+                <button onclick="openFile(${item.id})" class="btn-open">開啟</button>
+                <button onclick="showEditModal(${item.id})" class="btn-secondary">編輯</button>
+                ${item.filepath && item.filepath.toLowerCase().endsWith('.zip') ? `<button onclick="deleteFile(${item.id}, '${esc(item.filename).replace(/'/g, "\\'")}')" class="btn-delete">刪除</button>` : ''}
+            </div>
+            <div class="card-filename">${esc(item.filename)}</div>
+        </div>
+    `).join('');
+}
+
+function esc(s) {
+    if (!s) return '';
+    const div = document.createElement('div');
+    div.textContent = s;
+    return div.innerHTML;
+}
+
+// ── 分頁 ──
+function renderPagination(total, page, perPage) {
+    const totalPages = Math.ceil(total / perPage);
+    const container = document.getElementById('pagination');
+    if (totalPages <= 1) { container.innerHTML = ''; return; }
+
+    let html = '';
+    if (page > 1) html += `<button onclick="goPage(${page-1})">← 上一頁</button>`;
+    html += `<span class="page-info">第 ${page} / ${totalPages} 頁</span>`;
+    if (page < totalPages) html += `<button onclick="goPage(${page+1})">下一頁 →</button>`;
+    container.innerHTML = html;
+}
+
+function goPage(p) {
+    currentPage = p;
+    doSearch();
+    window.scrollTo({top: 0, behavior: 'smooth'});
+}
+
+// ── 開啟檔案 ──
+async function openFile(id) {
+    const res = await fetch(`/open/${id}`);
+    const data = await res.json();
+    if (data.error) alert('開啟失敗: ' + data.error);
+}
+
+// ── 刪除檔案 ──
+async function deleteFile(id, filename) {
+    if (!confirm(`確定要刪除此檔案？\n\n${filename}\n\n此操作無法復原！`)) return;
+    const res = await fetch(`/api/doujinshi/${id}`, {method: 'DELETE'});
+    const data = await res.json();
+    if (data.error) {
+        alert('刪除失敗: ' + data.error);
+    } else {
+        doSearch();
+    }
+}
+
+// ── Tag 操作 ──
+function showAddTag(id) {
+    const el = document.getElementById(`add-tag-${id}`);
+    el.style.display = 'inline-flex';
+    el.querySelector('input').focus();
+}
+
+async function confirmAddTag(id) {
+    const input = document.querySelector(`#add-tag-${id} input`);
+    const name = input.value.trim();
+    if (!name) return;
+    await fetch(`/api/doujinshi/${id}/tags`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name})
+    });
+    input.value = '';
+    await Promise.all([loadTags(), doSearch()]);
+}
+
+async function removeTag(did, tid) {
+    await fetch(`/api/doujinshi/${did}/tags/${tid}`, {method: 'DELETE'});
+    await Promise.all([loadTags(), doSearch()]);
+}
+
+// ── 編輯 Modal ──
+async function showEditModal(id) {
+    const res = await fetch(`/api/doujinshi/${id}`);
+    const item = await res.json();
+    document.getElementById('edit-id').value = id;
+    document.getElementById('edit-event').value = item.event || '';
+    document.getElementById('edit-circle').value = item.circle || '';
+    document.getElementById('edit-author').value = item.author || '';
+    document.getElementById('edit-title').value = item.title || '';
+    document.getElementById('edit-parody').value = item.parody || '';
+    document.getElementById('edit-category').value = item.category || '同人誌';
+    document.getElementById('edit-modal').style.display = 'flex';
+}
+
+function closeEditModal() {
+    document.getElementById('edit-modal').style.display = 'none';
+    document.getElementById('web-search-results').style.display = 'none';
+    document.getElementById('web-search-results').innerHTML = '';
+}
+
+// ── Web 搜尋建議 ──
+async function webSearchSuggestions() {
+    const id = document.getElementById('edit-id').value;
+    const btn = document.getElementById('btn-web-search');
+    const resultsDiv = document.getElementById('web-search-results');
+
+    btn.disabled = true;
+    btn.textContent = '搜尋中…';
+    resultsDiv.style.display = 'block';
+    resultsDiv.innerHTML = '<div class="ws-loading">正在搜尋多個來源…</div>';
+
+    try {
+        const res = await fetch(`/api/doujinshi/${id}/web-search`, {method: 'POST'});
+        const data = await res.json();
+
+        if (!data.suggestions || data.suggestions.length === 0) {
+            resultsDiv.innerHTML = '<div class="ws-empty">沒有找到建議</div>';
+            return;
+        }
+
+        resultsDiv.innerHTML = data.suggestions.map((s, i) => {
+            const sourceLabel = {
+                'dlsite': 'DLsite',
+                'dlsite_search': 'DLsite',
+                'web': 'Web',
+                'pattern_infer': '推斷',
+                'circle_infer': '社團推斷',
+            }[s.source] || s.source;
+
+            const conf = s.confidence ? `${Math.round(s.confidence * 100)}%` : '';
+
+            let fields = '';
+            if (s.circle) fields += `<span class="ws-field"><b>社團:</b> ${esc(s.circle)}</span>`;
+            if (s.author) fields += `<span class="ws-field"><b>作者:</b> ${esc(s.author)}</span>`;
+            if (s.parody) fields += `<span class="ws-field"><b>原作:</b> ${esc(s.parody)}</span>`;
+            if (s.title) fields += `<span class="ws-field"><b>標題:</b> ${esc(s.title)}</span>`;
+            if (s.reason) fields += `<span class="ws-field ws-reason">${esc(s.reason)}</span>`;
+
+            return `
+                <div class="ws-item">
+                    <div class="ws-header">
+                        <span class="ws-source ws-source-${s.source}">${sourceLabel}</span>
+                        ${conf ? `<span class="ws-confidence">${conf}</span>` : ''}
+                        <button onclick="applySuggestion(${i})" class="btn-apply">套用</button>
+                    </div>
+                    <div class="ws-fields">${fields}</div>
+                </div>
+            `;
+        }).join('');
+
+        resultsDiv._suggestions = data.suggestions;
+
+    } catch (e) {
+        resultsDiv.innerHTML = '<div class="ws-error">搜尋失敗，請稍後再試</div>';
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Web 搜尋建議';
+    }
+}
+
+function applySuggestion(index) {
+    const resultsDiv = document.getElementById('web-search-results');
+    const s = resultsDiv._suggestions[index];
+    if (!s) return;
+
+    if (s.event && !document.getElementById('edit-event').value.trim()) {
+        document.getElementById('edit-event').value = s.event;
+    }
+    if (s.circle && !document.getElementById('edit-circle').value.trim()) {
+        document.getElementById('edit-circle').value = s.circle;
+    }
+    if (s.author && !document.getElementById('edit-author').value.trim()) {
+        document.getElementById('edit-author').value = s.author;
+    }
+    if (s.parody) {
+        document.getElementById('edit-parody').value = s.parody;
+    }
+    if (s.title && !document.getElementById('edit-title').value.trim()) {
+        document.getElementById('edit-title').value = s.title;
+    }
+}
+
+async function saveEdit() {
+    const id = document.getElementById('edit-id').value;
+    const fields = {
+        event: document.getElementById('edit-event').value.trim() || null,
+        circle: document.getElementById('edit-circle').value.trim() || null,
+        author: document.getElementById('edit-author').value.trim() || null,
+        title: document.getElementById('edit-title').value.trim() || null,
+        parody: document.getElementById('edit-parody').value.trim() || null,
+        category: document.getElementById('edit-category').value,
+    };
+    await fetch(`/api/doujinshi/${id}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(fields)
+    });
+    closeEditModal();
+    doSearch();
+}
+
+// ── 清除篩選 ──
+function clearFilters() {
+    document.getElementById('q').value = '';
+    document.getElementById('f-event').value = '';
+    document.getElementById('f-parody').value = '';
+    document.getElementById('f-circle').value = '';
+    document.getElementById('f-author').value = '';
+    document.querySelectorAll('#tag-filters input:checked').forEach(cb => cb.checked = false);
+    document.querySelectorAll('.null-filter-row input:checked').forEach(cb => cb.checked = false);
+    document.getElementById('sort-field').value = 'event';
+    sortOrder = 'desc';
+    document.getElementById('sort-order').textContent = '↓';
+    document.querySelectorAll('.cat-tab').forEach(b => b.classList.remove('active'));
+    document.querySelector('.cat-tab[data-cat=""]').classList.add('active');
+    document.querySelectorAll('.src-tab').forEach(b => b.classList.remove('active'));
+    document.querySelector('.src-tab[data-src=""]').classList.add('active');
+    currentPage = 1;
+    doSearch();
+}
+
+// ── 重新掃描 ──
+async function rescan() {
+    const btn = document.getElementById('btn-rescan');
+    btn.disabled = true;
+    btn.textContent = '掃描中…';
+    try {
+        await fetch('/api/rescan', {method: 'POST'});
+        location.reload();
+    } catch (e) {
+        alert('掃描失敗');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '重新掃描';
+    }
+}
+
+// ── 頁面切換 ──
+function showPage(page) {
+    const searchEls = [document.querySelector('.filters'), document.getElementById('results'), document.getElementById('pagination')];
+    const mergeEl = document.getElementById('page-merge');
+
+    document.getElementById('nav-search').classList.toggle('active', page === 'search');
+    document.getElementById('nav-merge').classList.toggle('active', page === 'merge');
+
+    if (page === 'search') {
+        searchEls.forEach(el => el.style.display = '');
+        mergeEl.style.display = 'none';
+    } else {
+        searchEls.forEach(el => el.style.display = 'none');
+        mergeEl.style.display = '';
+        loadDuplicates();
+    }
+}
+
+// ── 合併管理 ──
+let duplicateGroups = [];
+
+async function loadDuplicates() {
+    const field = document.getElementById('merge-field').value;
+    const container = document.getElementById('merge-list');
+    const summary = document.getElementById('merge-summary');
+
+    container.innerHTML = '<div class="merge-loading">偵測重複中…</div>';
+    summary.textContent = '';
+
+    const res = await fetch(`/api/duplicates?field=${field}`);
+    duplicateGroups = await res.json();
+
+    if (duplicateGroups.length === 0) {
+        container.innerHTML = '<div class="merge-empty">沒有偵測到重複項目</div>';
+        summary.textContent = '0 組重複';
+        return;
+    }
+
+    summary.textContent = `${duplicateGroups.length} 組重複`;
+    renderDuplicateGroups(container);
+}
+
+function renderDuplicateGroups(container) {
+    container.innerHTML = duplicateGroups.map((group, gi) => {
+        const variantsHtml = group.variants.map((v, vi) => {
+            const checked = v.value === group.canonical ? 'checked' : '';
+            const jpBadge = v.is_japanese
+                ? '<span class="merge-variant-badge jp">日文</span>'
+                : '<span class="merge-variant-badge en">EN</span>';
+            const nameClass = v.is_japanese ? 'merge-variant-name is-jp' : 'merge-variant-name';
+            return `
+                <label class="merge-variant">
+                    <input type="radio" name="merge-${gi}" value="${esc(v.value)}"
+                           ${checked} onchange="updateCanonicalInput(${gi}, this.value)">
+                    <span class="${nameClass}">${esc(v.value)}</span>
+                    ${jpBadge}
+                    <span class="merge-variant-count">${v.count} 筆</span>
+                </label>
+            `;
+        }).join('');
+
+        return `
+            <div class="merge-group" id="merge-group-${gi}">
+                <div class="merge-group-header">
+                    <span style="font-weight:500;font-size:0.9rem">重複組 #${gi + 1}</span>
+                    <span class="merge-group-total">${group.total_count} 筆</span>
+                </div>
+                ${variantsHtml}
+                <div class="merge-group-actions">
+                    <input type="text" class="merge-canonical-input" id="canonical-${gi}"
+                           value="${esc(group.canonical)}" placeholder="合併後的名稱">
+                    <button class="btn-merge" onclick="doMerge(${gi})">合併</button>
+                    <button class="btn-skip" onclick="skipGroup(${gi})">跳過</button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function updateCanonicalInput(groupIndex, value) {
+    document.getElementById(`canonical-${groupIndex}`).value = value;
+}
+
+async function doMerge(groupIndex) {
+    const group = duplicateGroups[groupIndex];
+    const field = document.getElementById('merge-field').value;
+    const canonical = document.getElementById(`canonical-${groupIndex}`).value.trim();
+
+    if (!canonical) return;
+
+    const oldValues = group.variants.map(v => v.value).filter(v => v !== canonical);
+    if (oldValues.length === 0) {
+        skipGroup(groupIndex);
+        return;
+    }
+
+    const btn = document.querySelector(`#merge-group-${groupIndex} .btn-merge`);
+    btn.disabled = true;
+    btn.textContent = '合併中…';
+
+    try {
+        const res = await fetch('/api/merge', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ field, canonical, old_values: oldValues })
+        });
+        const data = await res.json();
+
+        if (data.ok) {
+            const el = document.getElementById(`merge-group-${groupIndex}`);
+            el.innerHTML = `<div class="merge-status success">已合併 ${data.updated} 筆 → ${esc(canonical)}</div>`;
+            duplicateGroups.splice(groupIndex, 1);
+            setTimeout(() => { el.style.display = 'none'; }, 2000);
+            document.getElementById('merge-summary').textContent = `${duplicateGroups.length} 組重複`;
+        } else {
+            const el = document.getElementById(`merge-group-${groupIndex}`);
+            el.insertAdjacentHTML('beforeend', `<div class="merge-status error">合併失敗: ${data.error}</div>`);
+            btn.disabled = false;
+            btn.textContent = '合併';
+        }
+    } catch (e) {
+        btn.disabled = false;
+        btn.textContent = '合併';
+    }
+}
+
+function skipGroup(groupIndex) {
+    const el = document.getElementById(`merge-group-${groupIndex}`);
+    el.style.display = 'none';
+}
+
+// ── 啟動 ──
+document.addEventListener('DOMContentLoaded', init);
+
+// all-tags datalist (for tag autocomplete)
+const dlAllTags = document.createElement('datalist');
+dlAllTags.id = 'dl-all-tags';
+document.body.appendChild(dlAllTags);
+</script>
+</body>
+</html>
