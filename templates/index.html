@@ -71,6 +71,7 @@
             </div>
             <div class="tag-filter-row" id="tag-filters"></div>
         </div>
+        <div class="active-filters" id="active-filters"></div>
         <div class="action-row">
             <span id="result-count"></span>
             <div class="sort-controls">
@@ -108,6 +109,9 @@
         </section>
     </div>
 
+    <!-- Toast 容器 -->
+    <div class="toast-container" id="toast-container"></div>
+
     <!-- 編輯 modal -->
     <div class="modal-overlay" id="edit-modal" style="display:none" onmousedown="if(event.target===this)this._shouldClose=true" onmouseup="if(event.target===this&&this._shouldClose)closeEditModal();this._shouldClose=false">
         <div class="modal">
@@ -142,6 +146,17 @@ let debounceTimer = null;
 let allTags = [];
 let sortOrder = 'desc';
 
+// ── Toast 通知 ──
+function showToast(message, type = 'success', duration = 3000) {
+    const container = document.getElementById('toast-container');
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.style.setProperty('--toast-duration', `${duration}ms`);
+    toast.textContent = message;
+    container.appendChild(toast);
+    setTimeout(() => toast.remove(), duration + 400);
+}
+
 // ── 初始化 ──
 async function init() {
     await Promise.all([loadFilters(), loadTags()]);
@@ -153,6 +168,11 @@ async function init() {
     document.getElementById('f-parody').addEventListener('change', () => { currentPage = 1; doSearch(); });
     document.getElementById('f-circle').addEventListener('change', () => { currentPage = 1; doSearch(); });
     document.getElementById('f-author').addEventListener('change', () => { currentPage = 1; doSearch(); });
+
+    // 全域鍵盤快捷鍵
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') closeEditModal();
+    });
 }
 
 function debounceSearch() {
@@ -264,6 +284,67 @@ function getSelectedTags() {
     return [...document.querySelectorAll('#tag-filters input:checked')].map(cb => cb.value);
 }
 
+// ── 活躍篩選 Pill ──
+function renderActiveFilters() {
+    const container = document.getElementById('active-filters');
+    const pills = [];
+    const fields = [
+        {id: 'f-event', label: '場次'},
+        {id: 'f-parody', label: '原作'},
+        {id: 'f-circle', label: '社團'},
+        {id: 'f-author', label: '作者'},
+    ];
+    fields.forEach(f => {
+        const val = document.getElementById(f.id).value.trim();
+        if (val) pills.push({label: f.label, value: val, inputId: f.id});
+    });
+    const nullFields = [
+        {id: 'null-event', label: '場次未分類'},
+        {id: 'null-parody', label: '原作未分類'},
+        {id: 'null-circle', label: '社團未分類'},
+        {id: 'null-author', label: '作者未分類'},
+    ];
+    nullFields.forEach(f => {
+        if (document.getElementById(f.id).checked)
+            pills.push({label: f.label, value: null, checkboxId: f.id});
+    });
+    getSelectedTags().forEach(t => {
+        pills.push({label: 'Tag', value: t, isTag: true});
+    });
+    const cat = getSelectedCategory();
+    if (cat) pills.push({label: '分類', value: cat, isCat: true});
+    const src = getSelectedSource();
+    if (src) pills.push({label: '來源', value: src === 'archive' ? '歸檔區' : '下載區', isSrc: true});
+
+    if (pills.length === 0) { container.innerHTML = ''; return; }
+    container.innerHTML = pills.map((p, i) =>
+        `<span class="filter-pill">${p.label}: ${p.value || ''} <button onclick="removePill(${i})" title="移除">&times;</button></span>`
+    ).join('');
+    container._pills = pills;
+}
+
+function removePill(index) {
+    const pills = document.getElementById('active-filters')._pills;
+    const p = pills[index];
+    if (p.inputId) document.getElementById(p.inputId).value = '';
+    if (p.checkboxId) document.getElementById(p.checkboxId).checked = false;
+    if (p.isTag) {
+        document.querySelectorAll('#tag-filters input').forEach(cb => {
+            if (cb.value === p.value) cb.checked = false;
+        });
+    }
+    if (p.isCat) {
+        document.querySelectorAll('.cat-tab').forEach(b => b.classList.remove('active'));
+        document.querySelector('.cat-tab[data-cat=""]').classList.add('active');
+    }
+    if (p.isSrc) {
+        document.querySelectorAll('.src-tab').forEach(b => b.classList.remove('active'));
+        document.querySelector('.src-tab[data-src=""]').classList.add('active');
+    }
+    currentPage = 1;
+    doSearch();
+}
+
 // ── 搜尋 ──
 async function doSearch() {
     const params = new URLSearchParams();
@@ -300,6 +381,7 @@ async function doSearch() {
     const data = await res.json();
 
     document.getElementById('result-count').textContent = `找到 ${data.total.toLocaleString()} 筆結果`;
+    renderActiveFilters();
     renderResults(data.results);
     renderPagination(data.total, data.page, data.per_page);
 }
@@ -384,7 +466,7 @@ function goPage(p) {
 async function openFile(id) {
     const res = await fetch(`/open/${id}`);
     const data = await res.json();
-    if (data.error) alert('開啟失敗: ' + data.error);
+    if (data.error) showToast('開啟失敗: ' + data.error, 'error');
 }
 
 // ── 刪除檔案 ──
@@ -393,8 +475,9 @@ async function deleteFile(id, filename) {
     const res = await fetch(`/api/doujinshi/${id}`, {method: 'DELETE'});
     const data = await res.json();
     if (data.error) {
-        alert('刪除失敗: ' + data.error);
+        showToast('刪除失敗: ' + data.error, 'error');
     } else {
+        showToast('已刪除', 'info');
         doSearch();
     }
 }
@@ -416,11 +499,13 @@ async function confirmAddTag(id) {
         body: JSON.stringify({name})
     });
     input.value = '';
+    showToast('Tag 已新增', 'success');
     await Promise.all([loadTags(), doSearch()]);
 }
 
 async function removeTag(did, tid) {
     await fetch(`/api/doujinshi/${did}/tags/${tid}`, {method: 'DELETE'});
+    showToast('Tag 已移除', 'info');
     await Promise.all([loadTags(), doSearch()]);
 }
 
@@ -542,6 +627,7 @@ async function saveEdit() {
         body: JSON.stringify(fields)
     });
     closeEditModal();
+    showToast('儲存成功', 'success');
     doSearch();
 }
 
@@ -574,7 +660,7 @@ async function rescan() {
         await fetch('/api/rescan', {method: 'POST'});
         location.reload();
     } catch (e) {
-        alert('掃描失敗');
+        showToast('掃描失敗', 'error');
     } finally {
         btn.disabled = false;
         btn.textContent = '重新掃描';
