@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 THUMB_DIR = config.THUMB_DIR
 THUMB_DIR.mkdir(exist_ok=True)
 THUMB_SIZE = config.THUMB_SIZE
+THUMB_QUALITY = config.THUMB_QUALITY
 IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp'}
 # 防止解碼超大圖片吃光記憶體
 Image.MAX_IMAGE_PIXELS = 50_000_000
@@ -60,7 +61,7 @@ def generate_thumbnail(filepath: str, doujinshi_id: int) -> Path | None:
         img.thumbnail(THUMB_SIZE, Image.LANCZOS)
         if img.mode in ('RGBA', 'P'):
             img = img.convert('RGB')
-        img.save(out, 'WEBP', quality=config.THUMB_QUALITY)
+        img.save(out, 'WEBP', quality=THUMB_QUALITY)
         return out
     except Exception as e:
         logger.warning("縮圖生成失敗 [%s]: %s", doujinshi_id, e)

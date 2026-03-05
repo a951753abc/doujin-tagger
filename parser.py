@@ -63,6 +63,11 @@ COMMERCIAL_PATTERN = re.compile(
     r'\)\s*'
 )
 
+# 原作名正規化映射（變體 → 正式名稱）
+PARODY_ALIASES = {
+    '東方': '東方Project',
+}
+
 
 def parse_filename(filename: str) -> ParsedDoujinshi:
     """
@@ -184,6 +189,10 @@ def parse_filename(filename: str) -> ParsedDoujinshi:
         title = re.sub(r'\s+', ' ', title).strip()
     if not title:
         title = filename  # fallback: 用原始檔名
+
+    # 正規化原作名
+    if parody and parody in PARODY_ALIASES:
+        parody = PARODY_ALIASES[parody]
 
     return ParsedDoujinshi(
         event=event or None,

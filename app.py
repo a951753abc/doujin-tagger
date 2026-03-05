@@ -269,6 +269,18 @@ def api_thumb(did):
     return resp, 202
 
 
+@app.route('/api/thumbs/clear', methods=['POST'])
+def api_clear_thumbs():
+    """清除所有縮圖快取，讓縮圖以新設定重新生成。"""
+    import thumbs as thumbs_mod
+    count = 0
+    for f in thumbs_mod.THUMB_DIR.iterdir():
+        if f.suffix in ('.webp', '.failed'):
+            f.unlink()
+            count += 1
+    return jsonify({"ok": True, "cleared": count})
+
+
 @app.route('/read/<int:did>')
 def read_file(did):
     """用設定的閱讀器（Honeyview）開啟檔案。"""
@@ -294,20 +306,58 @@ def api_get_settings():
         settings['viewer_path'] = config.default_viewer()
     if 'scan_roots' not in settings:
         settings['scan_roots'] = '[]'
+    if 'thumb_size' not in settings:
+        settings['thumb_size'] = config.get("thumb_size", "300x400")
+    if 'thumb_quality' not in settings:
+        settings['thumb_quality'] = str(config.THUMB_QUALITY)
     return jsonify(settings)
 
 
 @app.route('/api/settings', methods=['PUT'])
 def api_update_settings():
     data = request.get_json() or {}
-    allowed_keys = {'viewer_path', 'scan_roots'}
+    allowed_keys = {'viewer_path', 'scan_roots', 'thumb_size', 'thumb_quality'}
     for key, value in data.items():
         if key in allowed_keys:
             # scan_roots 需要是 JSON 字串
             if key == 'scan_roots' and isinstance(value, list):
                 value = json.dumps(value, ensure_ascii=False)
+            if key == 'thumb_size':
+                value = str(value).strip()
+                if not _valid_thumb_size(value):
+                    return jsonify({"error": "縮圖尺寸格式錯誤，請用 寬x高 格式（如 300x400）"}), 400
+            if key == 'thumb_quality':
+                try:
+                    q = int(value)
+                    if not (1 <= q <= 100):
+                        raise ValueError
+                    value = str(q)
+                except (ValueError, TypeError):
+                    return jsonify({"error": "品質須為 1-100 之間的整數"}), 400
             set_setting(g.db, key, value)
+    # 即時更新 thumbs 模組的設定
+    _apply_thumb_settings(g.db)
     return jsonify({"ok": True})
+
+
+def _valid_thumb_size(s: str) -> bool:
+    """驗證 thumb_size 格式如 '300x400'。"""
+    import re
+    return bool(re.match(r'^\d{1,4}x\d{1,4}$', s))
+
+
+def _apply_thumb_settings(db):
+    """將 DB 中的縮圖設定套用到 thumbs 模組。"""
+    import thumbs as thumbs_mod
+    ts = get_setting(db, 'thumb_size', '')
+    if ts and _valid_thumb_size(ts):
+        thumbs_mod.THUMB_SIZE = tuple(int(x) for x in ts.split('x'))
+    tq = get_setting(db, 'thumb_quality', '')
+    if tq:
+        try:
+            thumbs_mod.THUMB_QUALITY = int(tq)
+        except ValueError:
+            pass
 
 
 @app.route('/api/stats')
@@ -340,7 +390,17 @@ def _migrate_scan_roots():
     conn.close()
 
 
+def _init_thumb_settings():
+    """啟動時從 DB 載入縮圖設定。"""
+    conn = get_db()
+    try:
+        _apply_thumb_settings(conn)
+    finally:
+        conn.close()
+
+
 if __name__ == '__main__':
     init_db()
     _migrate_scan_roots()
+    _init_thumb_settings()
     app.run(debug=config.DEBUG, port=config.PORT)

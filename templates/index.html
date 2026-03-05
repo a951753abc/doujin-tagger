@@ -180,9 +180,22 @@
                 <label>閱讀器路徑</label>
                 <div class="setting-input-row">
                     <input type="text" id="setting-viewer-path" placeholder="閱讀器程式路徑（留空則用系統預設）">
-                    <button onclick="saveSettings()" class="btn-open">儲存</button>
                 </div>
                 <div class="setting-hint">用於「閱讀」按鈕開啟檔案的程式路徑</div>
+            </div>
+            <div class="setting-group">
+                <label>縮圖設定</label>
+                <div class="setting-input-row">
+                    <input type="text" id="setting-thumb-size" placeholder="300x400" style="width:120px">
+                    <span style="color:var(--muted);margin:0 8px">尺寸（寬x高）</span>
+                    <input type="number" id="setting-thumb-quality" min="1" max="100" placeholder="80" style="width:80px">
+                    <span style="color:var(--muted);margin:0 8px">品質（1-100）</span>
+                </div>
+                <div class="setting-input-row" style="margin-top:6px">
+                    <button onclick="saveSettings()" class="btn-open">儲存</button>
+                    <button onclick="clearThumbs()" class="btn-delete-small" style="margin-left:8px">清除縮圖快取</button>
+                </div>
+                <div class="setting-hint">變更尺寸或品質後，需清除快取才能套用到已有的縮圖</div>
             </div>
         </section>
     </div>
@@ -252,6 +265,8 @@ function showToast(message, type = 'success', duration = 3000) {
 // ── 初始化 ──
 async function init() {
     await Promise.all([loadFilters(), loadTags()]);
+    // 從後端取得 thumb_size 設定，套用到格子寬度
+    fetch('/api/settings').then(r => r.json()).then(d => applyThumbSizeToGrid(d.thumb_size)).catch(() => {});
     initViewMode();
     doSearch();
 
@@ -604,6 +619,15 @@ function initViewMode() {
     document.getElementById('btn-list').classList.toggle('active', viewMode === 'list');
     document.getElementById('btn-grid').classList.toggle('active', viewMode === 'grid');
     document.getElementById('results').classList.toggle('results-grid', viewMode === 'grid');
+}
+
+function applyThumbSizeToGrid(thumbSize) {
+    const m = (thumbSize || '300x400').match(/^(\d+)x(\d+)$/);
+    if (!m) return;
+    const w = parseInt(m[1], 10);
+    // 用寬度的 2/3 作為格子最小寬度，避免太大
+    const minW = Math.max(150, Math.round(w * 2 / 3));
+    document.documentElement.style.setProperty('--grid-min-w', minW + 'px');
 }
 
 // ── Badge 點擊篩選（event delegation）──
@@ -1164,6 +1188,9 @@ async function loadSettings() {
     const res = await fetch('/api/settings');
     const data = await res.json();
     document.getElementById('setting-viewer-path').value = data.viewer_path || '';
+    document.getElementById('setting-thumb-size').value = data.thumb_size || '300x400';
+    document.getElementById('setting-thumb-quality').value = data.thumb_quality || '80';
+    applyThumbSizeToGrid(data.thumb_size || '300x400');
     try { _scanRoots = JSON.parse(data.scan_roots || '[]'); } catch(e) { _scanRoots = []; }
     renderScanRoots();
 }
@@ -1211,12 +1238,26 @@ async function saveScanRoots() {
 
 async function saveSettings() {
     const viewerPath = document.getElementById('setting-viewer-path').value.trim();
-    await fetch('/api/settings', {
+    const thumbSize = document.getElementById('setting-thumb-size').value.trim();
+    const thumbQuality = document.getElementById('setting-thumb-quality').value.trim();
+    const res = await fetch('/api/settings', {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({viewer_path: viewerPath})
+        body: JSON.stringify({viewer_path: viewerPath, thumb_size: thumbSize, thumb_quality: thumbQuality})
     });
+    if (!res.ok) {
+        const err = await res.json();
+        showToast(err.error || '儲存失敗', 'error');
+        return;
+    }
     showToast('設定已儲存');
+}
+
+async function clearThumbs() {
+    if (!confirm('確定要清除所有縮圖快取？下次瀏覽時會自動重新生成。')) return;
+    const res = await fetch('/api/thumbs/clear', {method: 'POST'});
+    const data = await res.json();
+    showToast(`已清除 ${data.cleared} 個快取檔案`);
 }
 
 // ── 重新掃描 ──
