@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import sqlite3
 import sys
 import time
 from dataclasses import replace as dc_replace
@@ -58,6 +59,63 @@ def is_image_folder(dirpath: str, filenames: list[str]) -> bool:
         if ext in IMAGE_EXTS:
             has_images = True
     return has_images
+
+
+def _find_unique_replacement(conn, old_id: int, filename: str, used_targets: set[int]):
+    rows = conn.execute(
+        "SELECT id, filepath FROM doujinshi WHERE filename = ? AND id != ?",
+        (filename, old_id)
+    ).fetchall()
+    candidates = [
+        (r["id"], r["filepath"]) for r in rows
+        if r["id"] not in used_targets and os.path.exists(r["filepath"])
+    ]
+    if len(candidates) == 1:
+        return candidates[0][0], False
+    return None, len(candidates) > 1
+
+
+def _migrate_missing_entry(conn, old_id: int, filename: str, used_targets: set[int]):
+    new_id, ambiguous = _find_unique_replacement(conn, old_id, filename, used_targets)
+    if not new_id:
+        return False, ambiguous
+
+    old_tags = conn.execute(
+        "SELECT tag_id FROM doujinshi_tags WHERE doujinshi_id = ?",
+        (old_id,)
+    ).fetchall()
+    for row in old_tags:
+        try:
+            conn.execute(
+                "INSERT INTO doujinshi_tags (doujinshi_id, tag_id) VALUES (?, ?)",
+                (new_id, row[0])
+            )
+        except sqlite3.IntegrityError:
+            pass  # 已存在
+
+    old_data = conn.execute(
+        "SELECT event, circle, author, title, parody, category FROM doujinshi WHERE id = ?",
+        (old_id,)
+    ).fetchone()
+    if old_data:
+        conn.execute(
+            """UPDATE doujinshi
+               SET event=?, circle=?, author=?, title=?, parody=?, category=?,
+                   updated_at=CURRENT_TIMESTAMP
+               WHERE id = ?""",
+            (*old_data, new_id)
+        )
+
+    old_thumb = config.THUMB_DIR / f"{old_id}.webp"
+    new_thumb = config.THUMB_DIR / f"{new_id}.webp"
+    if old_thumb.exists() and not new_thumb.exists():
+        old_thumb.rename(new_thumb)
+    old_failed = config.THUMB_DIR / f"{old_id}.failed"
+    if old_failed.exists():
+        old_failed.unlink()
+
+    used_targets.add(new_id)
+    return True, False
 
 
 def scan(roots=None, db_path=None):
@@ -154,59 +212,21 @@ def scan(roots=None, db_path=None):
     # 清理已不存在的檔案/資料夾（搬移檔案時自動遷移 tag 及 metadata）
     removed = 0
     migrated = 0
+    ambiguous_migrations = 0
     rows = conn.execute("SELECT id, filepath, filename FROM doujinshi").fetchall()
     gone = [(r[0], r[1], r[2]) for r in rows if not os.path.exists(r[1])]
 
     if gone:
         gone_ids = []
+        used_migration_targets = set()
         for old_id, old_path, fname in gone:
-            # 用 filename 找同名新紀錄（路徑不同、檔案存在）
-            new_row = conn.execute(
-                "SELECT id FROM doujinshi WHERE filename = ? AND id != ?",
-                (fname, old_id)
-            ).fetchone()
-
-            if new_row:
-                new_id = new_row[0]
-                # 遷移 tags
-                old_tags = conn.execute(
-                    "SELECT tag_id FROM doujinshi_tags WHERE doujinshi_id = ?",
-                    (old_id,)
-                ).fetchall()
-                for row in old_tags:
-                    try:
-                        conn.execute(
-                            "INSERT INTO doujinshi_tags (doujinshi_id, tag_id) VALUES (?, ?)",
-                            (new_id, row[0])
-                        )
-                    except Exception:
-                        pass  # 已存在
-
-                # 遷移手動編輯過的 metadata
-                old_data = conn.execute(
-                    "SELECT event, circle, author, title, parody, category FROM doujinshi WHERE id = ?",
-                    (old_id,)
-                ).fetchone()
-                if old_data:
-                    conn.execute(
-                        """UPDATE doujinshi
-                           SET event=?, circle=?, author=?, title=?, parody=?, category=?,
-                               updated_at=CURRENT_TIMESTAMP
-                           WHERE id = ?""",
-                        (*old_data, new_id)
-                    )
-
-                # 遷移縮圖
-                old_thumb = config.THUMB_DIR / f"{old_id}.webp"
-                new_thumb = config.THUMB_DIR / f"{new_id}.webp"
-                if old_thumb.exists() and not new_thumb.exists():
-                    old_thumb.rename(new_thumb)
-                # 也清理 failed marker
-                old_failed = config.THUMB_DIR / f"{old_id}.failed"
-                if old_failed.exists():
-                    old_failed.unlink()
-
+            did_migrate, ambiguous = _migrate_missing_entry(
+                conn, old_id, fname, used_migration_targets
+            )
+            if did_migrate:
                 migrated += 1
+            elif ambiguous:
+                ambiguous_migrations += 1
 
             gone_ids.append(old_id)
 
@@ -233,6 +253,7 @@ def scan(roots=None, db_path=None):
         "skipped": skipped,
         "removed": removed,
         "migrated": migrated,
+        "ambiguous_migrations": ambiguous_migrations,
         "elapsed": round(elapsed, 1),
     }
 
@@ -243,6 +264,8 @@ def scan(roots=None, db_path=None):
     print(f"  已移除 (檔案不存在): {removed}")
     if migrated:
         print(f"  已遷移 (檔案搬移): {migrated}")
+    if ambiguous_migrations:
+        print(f"  跳過同名歧義遷移: {ambiguous_migrations}")
     print(f"  解析成功 (含社團/作者): {parse_ok}")
     print(f"  部分解析 (僅標題): {parse_partial}")
 

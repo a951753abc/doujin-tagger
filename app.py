@@ -4,6 +4,7 @@ import io
 import json
 import os
 import subprocess
+from threading import Lock
 from pathlib import Path
 from flask import Flask, render_template, request, jsonify, send_file, make_response, g
 
@@ -21,6 +22,7 @@ from thumbs import ThumbWorker, get_thumbnail_path
 
 app = Flask(__name__)
 thumb_worker = ThumbWorker(max_workers=config.THUMB_WORKERS)
+rescan_lock = Lock()
 
 # 1x1 透明 webp placeholder（啟動時生成一次）
 _ph = io.BytesIO()
@@ -32,6 +34,34 @@ def _is_path_under(filepath: str, allowed_roots: list[str]) -> bool:
     """安全的路徑包含檢查（避免 startswith 前綴誤判）。"""
     norm = Path(filepath).resolve()
     return any(norm.is_relative_to(Path(r).resolve()) for r in allowed_roots)
+
+
+INVALID_FOLDER_CHARS = '<>:"/\\|?*'
+WINDOWS_RESERVED_NAMES = {
+    "CON", "PRN", "AUX", "NUL",
+    "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+    "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+}
+
+
+def _safe_folder_name(value, default: str = "未分類") -> str:
+    name = str(value or "").strip()
+    name = "".join("_" if ch in INVALID_FOLDER_CHARS or ord(ch) < 32 else ch for ch in name)
+    name = name.strip(" .")
+    if not name:
+        return default
+    if name.upper() in WINDOWS_RESERVED_NAMES:
+        return f"{name}_"
+    return name
+
+
+def _archive_destination(target_root: str, event, filename: str) -> tuple[str, Path]:
+    target = Path(target_root).resolve()
+    event_folder = _safe_folder_name(event)
+    dest_dir = (target / event_folder).resolve()
+    if not dest_dir.is_relative_to(target):
+        raise ValueError("invalid destination path")
+    return event_folder, dest_dir / filename
 
 
 def _get_allowed_roots(db=None):
@@ -276,13 +306,13 @@ def api_batch_move():
             errors.append({"id": did, "error": "file not found"})
             continue
 
-        # 決定子資料夾：場次名稱或「未分類」
-        event_folder = item['event'].strip() if item.get('event') and item['event'].strip() else '未分類'
-        dest_dir = Path(target_root) / event_folder
-        dest_dir.mkdir(parents=True, exist_ok=True)
-
         filename = Path(old_path).name
-        dest_path = dest_dir / filename
+        try:
+            event_folder, dest_path = _archive_destination(target_root, item.get('event'), filename)
+        except ValueError as e:
+            errors.append({"id": did, "error": str(e)})
+            continue
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
 
         if dest_path.exists():
             errors.append({"id": did, "error": f"目標已存在: {filename}"})
@@ -431,8 +461,13 @@ def api_stats():
 def api_rescan():
     """觸發重新掃描。"""
     from scan import scan
-    result = scan()
-    return jsonify({"ok": True, **(result or {})})
+    if not rescan_lock.acquire(blocking=False):
+        return jsonify({"error": "scan already running", "running": True}), 409
+    try:
+        result = scan()
+        return jsonify({"ok": True, **(result or {})})
+    finally:
+        rescan_lock.release()
 
 
 def _migrate_scan_roots():

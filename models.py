@@ -115,6 +115,14 @@ def init_db(conn: Optional[sqlite3.Connection] = None):
     except sqlite3.OperationalError:
         pass
 
+    try:
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_doujinshi_tags_tag "
+            "ON doujinshi_tags(tag_id, doujinshi_id)"
+        )
+    except sqlite3.OperationalError:
+        pass
+
     # Settings 表
     conn.execute("""
         CREATE TABLE IF NOT EXISTS settings (
@@ -174,6 +182,33 @@ def insert_doujinshi(conn, parsed, filepath: str, folder: str,
 
 
 SORT_COLUMNS = {"title", "event", "circle", "author", "parody", "created_at", "filename"}
+DOUJINSHI_UPDATE_FIELDS = {'event', 'circle', 'author', 'title', 'parody', 'category'}
+
+
+def _build_fts_query(query: str) -> str:
+    """Build a safe FTS5 prefix query from user input."""
+    parts = []
+    for raw in query.split():
+        token = raw.replace('"', '').strip()
+        if token:
+            parts.append(f'"{token}"*')
+    return " ".join(parts)
+
+
+def _serialize_doujinshi_row(row) -> dict:
+    item = dict(row)
+    tag_names = item.pop('tag_names', None)
+    tag_ids = item.pop('tag_ids', None)
+    item['tags'] = []
+    if tag_names and tag_ids:
+        names = tag_names.split('||')
+        ids = tag_ids.split('||')
+        item['tags'] = [{"id": int(i), "name": n} for i, n in zip(ids, names)]
+    return item
+
+
+def _allowed_updates(fields: dict) -> dict:
+    return {k: v for k, v in fields.items() if k in DOUJINSHI_UPDATE_FIELDS}
 
 
 def search_doujinshi(conn, query="", event="", circle="", author="", parody="",
@@ -192,10 +227,10 @@ def search_doujinshi(conn, query="", event="", circle="", author="", parody="",
         params.append(source)
 
     if query:
-        conditions.append("d.id IN (SELECT rowid FROM doujinshi_fts WHERE doujinshi_fts MATCH ?)")
-        # FTS5 query: 加 * 支援前綴搜尋
-        fts_query = " ".join(f'"{w}"*' for w in query.split() if w)
-        params.append(fts_query)
+        fts_query = _build_fts_query(query)
+        if fts_query:
+            conditions.append("d.id IN (SELECT rowid FROM doujinshi_fts WHERE doujinshi_fts MATCH ?)")
+            params.append(fts_query)
 
     if event == "__null__":
         conditions.append("(d.event IS NULL OR d.event = '')")
@@ -258,17 +293,7 @@ def search_doujinshi(conn, query="", event="", circle="", author="", parody="",
     """
     rows = conn.execute(data_sql, params + [per_page, offset]).fetchall()
 
-    results = []
-    for row in rows:
-        item = dict(row)
-        tag_names = item.pop('tag_names', None)
-        tag_ids = item.pop('tag_ids', None)
-        item['tags'] = []
-        if tag_names:
-            names = tag_names.split('||')
-            ids = tag_ids.split('||')
-            item['tags'] = [{"id": int(i), "name": n} for i, n in zip(ids, names)]
-        results.append(item)
+    results = [_serialize_doujinshi_row(row) for row in rows]
 
     return {"total": total, "page": page, "per_page": per_page, "results": results}
 
@@ -286,15 +311,7 @@ def get_doujinshi(conn, doujinshi_id: int):
     ).fetchone()
     if not row:
         return None
-    item = dict(row)
-    tag_names = item.pop('tag_names', None)
-    tag_ids = item.pop('tag_ids', None)
-    item['tags'] = []
-    if tag_names:
-        names = tag_names.split('||')
-        ids = tag_ids.split('||')
-        item['tags'] = [{"id": int(i), "name": n} for i, n in zip(ids, names)]
-    return item
+    return _serialize_doujinshi_row(row)
 
 
 def delete_doujinshi(conn, doujinshi_id: int):
@@ -305,8 +322,7 @@ def delete_doujinshi(conn, doujinshi_id: int):
 
 
 def update_doujinshi(conn, doujinshi_id: int, fields: dict):
-    allowed = {'event', 'circle', 'author', 'title', 'parody', 'category'}
-    updates = {k: v for k, v in fields.items() if k in allowed}
+    updates = _allowed_updates(fields)
     if not updates:
         return
     set_clause = ", ".join(f"{k} = ?" for k in updates)
@@ -460,8 +476,7 @@ def move_doujinshi(conn, doujinshi_id: int, new_filepath: str, new_folder: str,
 
 def batch_update(conn, doujinshi_ids: list, fields: dict) -> dict:
     """對多筆同人誌更新相同欄位。"""
-    allowed = {'event', 'circle', 'author', 'title', 'parody', 'category'}
-    updates = {k: v for k, v in fields.items() if k in allowed}
+    updates = _allowed_updates(fields)
     if not updates or not doujinshi_ids:
         return {"updated": 0}
     set_clause = ", ".join(f"{k} = ?" for k in updates)
